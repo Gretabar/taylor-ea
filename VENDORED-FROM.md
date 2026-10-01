@@ -64,6 +64,14 @@ Vendored 2026-10-01.
 | `.claude/hooks/require-delivery-agent.py` | `-` | `-` | `-` | `190205d929fbf92aea96e769fa90b13957a11e20fbb428b1fa00969fc9a68357` | NEW |
 | `.claude/hooks/protect-architecture.py` | `-` | `-` | `-` | `e4643ed1eb8fee8f4deaf561ed6747ffe22dd7397f96daf75706376e05651da9` | NEW |
 | `scripts/register.py` | `-` | `-` | `-` | `c6bd14f0bf119f03298d30a530417778a61bf49538bd284769b670d26cf88969` | NEW |
+| `scripts/google_creds.py` | `STEVIE:scripts/upload_to_drive.py` | `untracked` | `8501f0e5e2c0f6c5e0b8220ae2a650eb7af453cb413b64666690889f6674f883` | `9edf8952c0912ac2a203685ee23ec5559974dcbb443678d562fe3bec37a3924b` | PORT |
+| `scripts/google_auth.py` | `STEVIE:scripts/marketing_report/google_auth.py` | `e3f42d2` | `92c3d715e28338de6aaef8b9c6241f8ac8c1abe14810b6ec3a841a5f1c272f8e` | `bc6115a7feb84c96743b96c71d1c4284ee80f65804f1dc59bd1ab494b03d84c5` | PORT |
+| `scripts/docs_read.py` | `-` | `-` | `-` | `f7b9bb0e2e418739361bc4c2f8ac79a6c5f58f61890bd1a08b86f9cd2b77ec5b` | NEW |
+| `scripts/link_docs.py` | `-` | `-` | `-` | `9d32f6e2d9eb621758be491442c0497b0cffbe32f5bede9ab5eb84bdb82a49c7` | NEW |
+| `scripts/calendar_next.py` | `-` | `-` | `-` | `d703104020d0751f994fd4c18168e7e81e0c821272187b79243abd1aa0ef8fe2` | NEW |
+| `scripts/make_fixtures.py` | `-` | `-` | `-` | `133fc4b384b7c340b311f0f1c510fdc47220f5c999b64ae15c1b281990502374` | NEW |
+| `tests/test_calendar_next.py` | `-` | `-` | `-` | `39b93a6afe224422e711ce8b14e1edb8c4ba08c99d0544ff214f8f42dce37c22` | NEW |
+| `tests/test_docs_read.py` | `-` | `-` | `-` | `13b4b70d1ed06cd040cfadb4439577e2b54b8da7671b0e75dd7b5e5bf2764881` | NEW |
 <!-- end of manifest table -->
 
 ## What changed, and why

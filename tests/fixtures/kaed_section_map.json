@@ -1,0 +1,54 @@
+{
+ "version": 1,
+ "tab_title": "RUNNING AGENDA",
+ "block_heading": "RUNNING AGENDA:",
+ "block_order": "newest_first",
+ "ref_tokens": true,
+ "labels": [
+  "Wins + Challenges from the week (personal + professional)",
+  "Follow-Ups: Updates + Action Items",
+  "Feedback",
+  "Strategic Priorities",
+  "Top Focuses",
+  "Kaed Notes"
+ ],
+ "sections": {
+  "wins": {
+   "anchor": "Wins + Challenges",
+   "kind": "list"
+  },
+  "open_actions": {
+   "anchor": "Action Items",
+   "kind": "table",
+   "header": [
+    "Assignee",
+    "Title",
+    "Date",
+    "Status"
+   ],
+   "columns": {
+    "assignee": 0,
+    "title": 1,
+    "date": 2,
+    "status": 3
+   }
+  },
+  "feedback": {
+   "anchor": "Feedback",
+   "kind": "list"
+  },
+  "goals": {
+   "anchor": "Strategic Priorities",
+   "kind": "list"
+  },
+  "taylor_topics": {
+   "anchor": "Top Focuses",
+   "kind": "list"
+  },
+  "their_topics": {
+   "anchor": "Kaed Notes",
+   "kind": "list"
+  }
+ },
+ "fixture_note": "taylor_topics -> 'Top Focuses' and their_topics -> '<Name> Notes' are the fixture convention; the live mapping is confirmed with Taylor per Doc."
+}
