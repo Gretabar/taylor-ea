@@ -25,7 +25,7 @@ In Phase 1 it does not send an email, on your behalf or to anyone else. It does 
 Neither one means you did anything wrong. Both mean tell Mike.
 
 - `/morning` shows LAST TICK in red. The background check that keeps your Docs and the register in sync hasn't run in a while, something's stopped.
-- After a capture (an `/add`, or anything through `/NAME` that writes), the line at the bottom should name REED, PAGE and WREN. If it reads TEAM: NONE instead, nothing actually got dispatched to write it, even if the chat reads like it worked.
+- After a capture (an `/add`, or anything through `/NAME` that writes), the bottom of the screen names the team: `TEAM  |  REED -> PAGE -> WREN  (3 dispatched)`. A read-only command like `/owe` or `/morning` shows `TEAM  |  read only, nothing written` instead, that's normal, nothing got written so there's nothing to name. Watch for a framed block headed `TEAM: NONE - THIS TURN RAN SOLO`: if that appears after a capture, something got written without the team, tell Mike.
 
 ## Talk to it the way you'd talk to a person
 

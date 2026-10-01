@@ -32,9 +32,9 @@ After: "October 9" (then the other two as their own commands)
 **6. A refusal names a rule. Know which kind.**
 Two different things can say no, and each takes a different fix.
 (a) One of your own architecture rules: you're the authority. Say `architecture change ok` plus the change, and it applies and logs a dated line in your Architecture Change Log. Reword it without that phrase and you get the same refusal, on purpose, that's your own G1 test.
-(b) A safety gate built into the system itself, like only WREN ever writing to your Docs, or nothing ever getting deleted: rewording won't help, and neither will the phrase. Send Mike the exact gate it named and what you asked for.
-Before: "Just delete the old entries once they're done, it's getting cluttered."
-After: that's gate (b), so it goes to Mike with the exact refusal, not a rephrase
+(b) A purely mechanical gate, like only WREN ever writing to your Docs, or it only writing to the Docs you've linked: rewording won't help, and neither will the phrase. Send Mike the exact gate it named and what you asked for.
+Before: "Add the Christmas lights item to the YYZ weekly meeting Doc." (refused, that Doc isn't one of your linked Docs yet, weekly meetings are a Phase 2 item)
+After: send Mike the exact refusal, it's a Phase 2 gap, not a wording problem
 
 **7. Make a forever rule an architecture change, once.**
 Say the phrase and the actual change together, and it updates its own rules and logs them. No detour through Mike, unless the change needs new code, in which case it tells you plainly that it's queued, not pretending it's already live.
