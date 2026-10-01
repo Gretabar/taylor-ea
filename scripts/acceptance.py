@@ -702,7 +702,7 @@ def run_leg(name: str, fn) -> tuple[Evidence, dict]:
     """Run one leg. Never Passed without the leg's own observed evidence."""
     ev = Evidence()
     try:
-        return ev, fn(ev)
+        result = fn(ev)
     except SystemFailure as exc:
         return ev, {"ok": False, "summary": f"system failure: {exc}"}
     except Exception as exc:  # noqa: BLE001
@@ -712,6 +712,11 @@ def run_leg(name: str, fn) -> tuple[Evidence, dict]:
         if name in BLOCK_ON_HARNESS_ERROR:
             result["blocked"] = True
         return ev, result
+    if not result["ok"]:
+        # A leg's summary describes the outcome it checks for. On a failure that is what
+        # was expected, not what happened, and it must not read like a pass.
+        result = {**result, "summary": f"expected, not observed: {result['summary']}"}
+    return ev, result
 
 
 def verdict(result: dict) -> str:

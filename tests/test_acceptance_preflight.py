@@ -8,7 +8,8 @@ overwrote the committed passing report. These pin the fix:
     and the report on disk is byte-for-byte untouched (sha256 before and after);
   - fresh fixtures pass the check, including a Doc whose revision moved with no
     content change, while changed, deleted and unreadable Docs do not;
-  - a harness crash in P1.6 or G4 is Blocked, a broken script is still FAILED.
+  - a harness crash in P1.6 or G4 is Blocked, a broken script is still FAILED;
+  - a FAILED leg's summary is marked as what was expected, so it cannot read like a pass.
 
 The refusal tests drive the real script in a throwaway EA_ROOT. Everything else
 runs in-process against the recorded Kaed response and a fake Docs fetch. No network.
@@ -249,6 +250,13 @@ class HarnessCrashIsBlocked(unittest.TestCase):
     def test_a_harness_crash_in_other_legs_is_still_failed(self):
         _, result = self.acceptance.run_leg("P1.1", lambda ev: {}["ref"])
         self.assertEqual(self.acceptance.verdict(result), "FAILED")
+
+    def test_a_failed_leg_does_not_read_like_a_pass(self):
+        summary = "1 topic T-0001 placed in Kaed's taylor_topics, 0 actions, 0 meetings created"
+        _, failed = self.acceptance.run_leg("P1.1", lambda ev: {"ok": False, "summary": summary})
+        _, passed = self.acceptance.run_leg("P1.1", lambda ev: {"ok": True, "summary": summary})
+        self.assertEqual(failed["summary"], f"expected, not observed: {summary}")
+        self.assertEqual(passed["summary"], summary)
 
 
 if __name__ == "__main__":
