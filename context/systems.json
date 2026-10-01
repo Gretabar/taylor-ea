@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "updated": "2026-10-01",
+  "about": [
+    "Every system this machine touches, and the only hosts it may reach. Read by",
+    ".claude/hooks/no-cloud.py (host_allowlist.network) and nothing else.",
+    "",
+    "A host with verified=false has NOT been confirmed against the live system and is",
+    "deliberately absent from the allowlist, so reaching it is denied until somebody",
+    "checks. That fails safe: the cost is one blocked call naming the host.",
+    "",
+    "What this machine CANNOT see is listed too, under not_visible_from_here. The Phase 1",
+    "audit reports those as 'cannot audit from this machine' rather than inventing them."
+  ],
+  "systems": [
+    {
+      "name": "Google Docs API",
+      "purpose": "Read and edit the six running 1:1 Docs. Edits are WREN only, through scripts/docs_edit.py, with writeControl and a read-back.",
+      "scope": "https://www.googleapis.com/auth/documents",
+      "status": "API enabled on GCP project bigquery-487308 (a documents.get call succeeded 2026-10-01).",
+      "hosts": [
+        {"host": "docs.googleapis.com", "verified": true, "source": "google-api-python-client discovery for docs v1"}
+      ]
+    },
+    {
+      "name": "Google Calendar API",
+      "purpose": "READ ONLY in Phase 1: the next instance of each 1:1 series, and the cadence observed from the gaps. No event is ever created, moved or cancelled in Phase 1.",
+      "scope": "https://www.googleapis.com/auth/calendar.readonly",
+      "status": "UNPROVEN. Mike's token has no calendar scope, so whether the API is enabled on the project is unknown until a fresh consent with calendar.readonly.",
+      "hosts": [
+        {"host": "www.googleapis.com", "verified": true, "source": "calendar v3 base URL"}
+      ]
+    },
+    {
+      "name": "Google OAuth",
+      "purpose": "One installed-app consent by Taylor; token refresh on every run.",
+      "hosts": [
+        {"host": "accounts.google.com", "verified": true},
+        {"host": "oauth2.googleapis.com", "verified": true}
+      ]
+    },
+    {
+      "name": "Gmail API",
+      "purpose": "NOT USED in Phase 1. Listed because D-2 (request gmail.compose in the first consent) is undecided.",
+      "scope": "https://www.googleapis.com/auth/gmail.compose",
+      "status": "not requested",
+      "hosts": [
+        {"host": "gmail.googleapis.com", "verified": true, "note": "not on the allowlist until a phase needs it"}
+      ]
+    }
+  ],
+  "not_visible_from_here": [
+    "claude.ai projects and their knowledge files (Taylor's Enterprise seat, not this machine)",
+    "GRETA bots and n8n workflows (Mike's STEVIE and gretabot.app.n8n.cloud)",
+    "Supabase projects (Mike's account)",
+    "TripleSeat (no integration exists; blueprint s.8 forbids assuming one)",
+    "Wispr transcripts (Phase 2)"
+  ],
+  "host_allowlist": {
+    "about": "no-cloud.py matches a request host against network[] exactly or as a subdomain suffix. Only verified hosts of systems Phase 1 actually uses appear here.",
+    "network": [
+      "docs.googleapis.com",
+      "www.googleapis.com",
+      "accounts.google.com",
+      "oauth2.googleapis.com"
+    ]
+  },
+  "blocked_commands": {
+    "about": "no-cloud.py blocks these outright. The register and the token live on this disk; nothing in Phase 1 needs to push or sync them anywhere.",
+    "commands": ["git push", "gh", "aws", "az", "gcloud", "rclone", "scp", "sftp", "bitsadmin", "azcopy"]
+  }
+}

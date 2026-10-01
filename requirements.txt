@@ -1,0 +1,18 @@
+# Runtime dependencies. Python 3.11 or newer.
+#
+# Deliberately short. SQLite, hashing, the scheduler integration and every hook are
+# standard library. Playwright and requests are NOT here: Phase 1 drives no browser,
+# and the Google client library carries its own HTTP transport.
+
+# Agent and skill frontmatter parsing (scripts/validate_agent_contracts.py).
+PyYAML>=6.0.1
+
+# Google Docs and Calendar. One installed-app consent, then refresh on every run.
+google-api-python-client>=2.120.0
+google-auth>=2.28.0
+google-auth-oauthlib>=1.2.0
+
+# Windows Python ships no time zone database, so zoneinfo("America/Toronto") raises
+# ZoneInfoNotFoundError without this. Every relative date ("Friday") and every
+# next-meeting time is resolved in Taylor's configured zone, so this is not optional.
+tzdata>=2024.1

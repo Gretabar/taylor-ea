@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "about": [
+    "The ONLY file that carries the system's display name. Every path, env var, database",
+    "file and declaration key uses the internal codename `ea` instead, so renaming the",
+    "system at handover is: edit system_name here, rename .claude/commands/NAME.md,",
+    "rename the folder (and repo_root below), and one find-and-replace for NAME across *.md.",
+    "Nothing in scripts/ or .claude/hooks/ carries the display name."
+  ],
+  "system_name": "NAME",
+  "system_name_status": "placeholder until Taylor names the system at handover",
+  "codename": "ea",
+  "owner_name": "Taylor Iwaasa",
+  "owner_email": "t.iwaasa@gretabar.com",
+  "owner_person_key": "taylor",
+  "owner_role": "Managing Partner, Greta YYZ",
+  "google_account": "t.iwaasa@gretabar.com",
+  "repo_root": "C:\\EA",
+  "repo_root_note": "Build location on Mike's machine. At handover this becomes C:\\<Name>, never a path under Documents or Desktop.",
+  "timezone": "America/Toronto",
+  "timezone_status": "assumed from YYZ; Taylor has not confirmed it (blueprint s.11 asks for it to be verified)",
+  "maintainer": "Mike Kelly",
+  "maintainer_email": "m.kelly@gretabar.com"
+}

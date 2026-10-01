@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "about": [
+    "The agent roster, fixed now so later phases add files and never rename. Read by",
+    ".claude/hooks/_gate.py (ROSTER), team-rollcall.py, statusline-ea.py and",
+    "scripts/validate_agent_contracts.py, so all four agree on who exists.",
+    "",
+    "Phase 1 agents have a file under .claude/agents/. Phase 2+ agents are listed so the",
+    "names are reserved; the contract validator reports them as NOTE, not as failures.",
+    "",
+    "`delivery: true` marks the one agent allowed to run scripts/docs_edit.py. The hook",
+    "that enforces it (require-delivery-agent.py) hardcodes the same name on purpose, and",
+    "the guardrail self-test checks the two still agree."
+  ],
+  "orchestrator": {"command": "NAME", "phase": 1, "lane": "dispatch, reality-checker, deviation memos, Needs Your Input"},
+  "agents": [
+    {"name": "REED", "phase": 1, "model": "opus", "specialty": "Action Register: topic vs commitment, owner and date resolution, history, retrieval"},
+    {"name": "PAGE", "phase": 1, "model": "sonnet", "specialty": "Running Docs: read structure, pick the section, write the edit proposal"},
+    {"name": "WREN", "phase": 1, "model": "opus", "specialty": "Delivery: the only agent that runs docs_edit.py; reads every write back", "delivery": true},
+    {"name": "HUGO", "phase": 1, "model": "opus", "specialty": "Unblocking: tokens, 4xx, stale revisions, a gate that looks wrong"},
+    {"name": "MILO", "phase": 2, "model": "opus", "specialty": "Transcripts, weekly Live/Download, next-meeting creation"},
+    {"name": "LARK", "phase": 3, "model": "sonnet", "specialty": "Daily brief, reply control, meeting prep (also Phase 7)"},
+    {"name": "ATLAS", "phase": 4, "model": "sonnet", "specialty": "Projects and knowledge, source freshness"},
+    {"name": "CLEO", "phase": 5, "model": "opus", "specialty": "Reservation drafts under approved rules"}
+  ]
+}

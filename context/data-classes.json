@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "updated": "2026-10-01",
+  "declaration_key": "ea-class",
+  "about": [
+    "Three data classes and the only places each may land. Read by",
+    ".claude/hooks/classify-and-place.py on every Write and Edit.",
+    "",
+    "CLASSIFICATION IS A POSITIVE DECLARATION, NOT A SNIFF. Every file written under",
+    "output/ or state/ carries an 'ea-class: <class>' line in its first 40 lines, in",
+    "whatever comment or frontmatter form the format allows. JSON may carry it as a key:",
+    "\"ea-class\": \"records\". Undeclared is blocked.",
+    "",
+    "The named-list sniffer PIPER runs is OFF here (applies_to is empty): the roster is",
+    "six managers, so every 1:1 record names one of them by design, and a sniffer that",
+    "fires on every legitimate record is a sniffer somebody switches off."
+  ],
+  "declaration_required_under": ["output", "state"],
+  "classes": {
+    "private": {
+      "definition": "Taylor's own private material: personal context, anything the blueprint says must not reach a shared record (s.2).",
+      "examples": ["private notes Taylor asks to keep", "anything about availability reasons (Phase 7)"],
+      "allowed_roots": ["state/private"],
+      "forbidden_roots": ["output", "state/proposals", "state/records"],
+      "git": "never",
+      "egress": "never in Phase 1"
+    },
+    "records": {
+      "definition": "Named-manager working records: Doc edit proposals and parsed Doc snapshots.",
+      "examples": ["state/proposals/<date>-<doc>-<ref>.json", "parsed snapshots of a running Doc"],
+      "allowed_roots": ["state/proposals", "state/records"],
+      "forbidden_roots": ["output", "state/private"],
+      "git": "never",
+      "egress": "a proposal reaches a Doc only through WREN running scripts/docs_edit.py"
+    },
+    "shareable": {
+      "definition": "Copy written to be read by Taylor or sent by him, carrying nothing private.",
+      "examples": ["draft text for Taylor to review (Phase 3 and later)"],
+      "allowed_roots": ["output/drafts"],
+      "forbidden_roots": ["state/private"],
+      "git": "never",
+      "egress": "Taylor sends it himself; nothing in Phase 1 sends"
+    }
+  },
+  "named_list_sniffer": {
+    "threshold": 5,
+    "applies_to": [],
+    "reason": "Off by design for a six-person roster. See about[].",
+    "roster_source": "state/ea.db, people.full_name"
+  }
+}

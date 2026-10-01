@@ -1,0 +1,4 @@
+# Pin LF everywhere. This machine has core.autocrlf=true, which would rewrite
+# files to CRLF on checkout: every VERBATIM sha256 in VENDORED-FROM.md would stop
+# matching, and a CRLF _lib.sh fails under bash with "$'\r': command not found".
+* text=auto eol=lf

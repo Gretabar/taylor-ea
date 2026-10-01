@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "about": [
+    "The people this system may name, seeded into the `people` table by",
+    "`python scripts/register.py seed --roster`. Blueprint s.1: correct identities using",
+    "verified records, and a speech-transcription variant is an ALIAS of an existing",
+    "person, never a new row (G5).",
+    "",
+    "Nothing below was verified against a live source. Full names, work emails and roles",
+    "are deliberately null rather than guessed: they are in 'Need from Taylor'. A null",
+    "here makes the register say 'unknown', which is the honest state; a plausible guess",
+    "here would be repeated by every agent as fact.",
+    "",
+    "Aliases marked fixture are test data for G5 ('Cade' resolves to Kaed, 'Kade' does",
+    "not). Replace them with the transcription variants Taylor actually sees."
+  ],
+  "people": [
+    {"key": "taylor", "full_name": "Taylor Iwaasa", "work_email": "t.iwaasa@gretabar.com",
+     "role": "Managing Partner, Greta YYZ (the owner)", "aliases": [], "cadence": null, "one_on_one": false},
+    {"key": "shawn", "full_name": "Shawn", "work_email": null, "role": null,
+     "aliases": [], "cadence": null, "one_on_one": true},
+    {"key": "mark", "full_name": "Mark", "work_email": null, "role": null,
+     "aliases": [], "cadence": null, "one_on_one": true},
+    {"key": "anya", "full_name": "Anya", "work_email": null, "role": null,
+     "aliases": [], "cadence": null, "one_on_one": true},
+    {"key": "kaed", "full_name": "Kaed", "work_email": null, "role": null,
+     "aliases": ["Cade"], "aliases_status": "fixture (G5 test data), not confirmed by Taylor",
+     "cadence": null, "one_on_one": true},
+    {"key": "casey", "full_name": "Casey", "work_email": null, "role": null,
+     "aliases": [], "cadence": null, "one_on_one": true},
+    {"key": "tania", "full_name": "Tania", "work_email": null, "role": null,
+     "aliases": [], "cadence": null, "one_on_one": true},
+    {"key": "moreen", "full_name": "Moreen", "work_email": null,
+     "role": "reservation colleague (blueprint s.1; her workflow is Phase 5)",
+     "aliases": [], "cadence": null, "one_on_one": false}
+  ]
+}
