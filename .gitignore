@@ -1,10 +1,16 @@
-# This repo is local-only. Everything below either IS a record of Taylor's working
-# relationships or can reconstruct one, or is a credential.
+# Taylor's installed copy is local-only: any Claude session rooted there cannot push
+# or sync anywhere (no-cloud.py blocks `git push`, and any write into OneDrive,
+# Dropbox, Google Drive or a mapped network drive). The SOURCE is hosted privately at
+# github.com/Gretabar/taylor-ea so Mike can clone and update the framework from
+# there. Either way, everything below either IS a record of Taylor's working
+# relationships or can reconstruct one, or is a credential -- state/, logs/ and every
+# token never leave any machine, in that git history or otherwise.
 #
 # Three layers, this is the weakest:
 #   classify-and-place.py  decides where a file may land in the first place
-#   no-cloud.py            blocks `git push`, and any write into OneDrive, Dropbox,
-#                          Google Drive or a mapped network drive
+#   no-cloud.py            blocks `git push` from Taylor's installed copy, and any
+#                          write into OneDrive, Dropbox, Google Drive or a mapped
+#                          network drive
 #   this file              stops any of it being staged even so
 
 # The register, the OAuth client and token, proposals, snapshots, private notes,
