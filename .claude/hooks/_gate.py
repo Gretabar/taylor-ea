@@ -203,6 +203,41 @@ def is_build_machine() -> bool:
     return first[0].strip().lower() == socket.gethostname().strip().lower()
 
 
+_INTERPRETER = re.compile(
+    r"(?:^|[\s&;|(`'\"])(?:[\w.:~\\/-]*[\\/])?(?:python3?|pythonw|py)(?:\.exe)?(?=$|[\s'\"`;|)])",
+    re.I,
+)
+_SEPARATORS = re.compile(r"(?:\|\||&&|;|\||\n)")
+
+
+def invokes_script(command: str, stem: str) -> bool:
+    """True when this shell command would run scripts/<stem>.py.
+
+    Moved here from require-delivery-agent.py when a second gate (the SAGE-only gate
+    on privacy_review.py) needed the identical rule; two copies of one parser are how
+    STEVIE's dispatch parse ended up in four places.
+
+    A command that mentions the stem AND starts a Python interpreter anywhere in it
+    (`python scripts/x.py`, `py -3 ...`, `powershell -Command "python ..."`,
+    `python -c "import x"`, or the source piped into `python -`), or that executes
+    x.py directly. Reading the file (cat, grep, git diff, Get-Content) starts no
+    interpreter and passes. Crude on purpose: a precise parser of two shells'
+    grammar would be a larger attack surface than the gate, and the cost of the
+    crudeness is a rare false positive (`grep py scripts/x.py`).
+    """
+    if not command or not re.search(re.escape(stem), command, re.I):
+        return False
+    if _INTERPRETER.search(command):
+        return True
+    for fragment in _SEPARATORS.split(command):
+        tokens = fragment.strip().split()
+        while tokens and tokens[0] in ("&", ".", "call", "start"):
+            tokens = tokens[1:]
+        if tokens and tokens[0].strip("'\"").replace("\\", "/").lower().endswith(f"{stem.lower()}.py"):
+            return True
+    return False
+
+
 def _bare(name: str) -> str:
     """'ea:wren' or 'wren' -> 'WREN'."""
     return (name or "").split(":")[-1].strip().upper()

@@ -29,7 +29,8 @@ source into `python -`), or that executes docs_edit.py directly. Reading the fil
 (cat, grep, git diff, Get-Content) does not start an interpreter and passes.
 Crude on purpose: a precise parser of two shells' grammar would be a larger
 attack surface than the gate. The cost of the crudeness is a rare false positive
-(`grep py scripts/docs_edit.py`), which is a sentence of clarification.
+(`grep py scripts/docs_edit.py`), which is a sentence of clarification. The rule
+itself is _gate.invokes_script(), shared with require-privacy-agent.py.
 
 ALSO MATCHED ON PowerShell. Claude Code on Windows enables a native PowerShell tool
 by default for claude.ai accounts and treats it as the primary shell; a gate that
@@ -40,7 +41,6 @@ Fails CLOSED on an unreadable payload.
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -55,6 +55,7 @@ from _gate import (  # noqa: E402
     caller_agent,
     deny_environment,
     first_field,
+    invokes_script,
     read_payload,
 )
 
@@ -65,27 +66,10 @@ HOOK = "require-delivery-agent"
 # runtime would make the width of this exemption a matter of file contents.
 DELIVERY_AGENT = "WREN"
 
-MENTIONS_WRITER = re.compile(r"docs_edit", re.I)
-INTERPRETER = re.compile(
-    r"(?:^|[\s&;|(`'\"])(?:[\w.:~\\/-]*[\\/])?(?:python3?|pythonw|py)(?:\.exe)?(?=$|[\s'\"`;|)])",
-    re.I,
-)
-SEPARATORS = re.compile(r"(?:\|\||&&|;|\||\n)")
-
 
 def invokes_writer(command: str) -> bool:
     """True when this shell command would run scripts/docs_edit.py."""
-    if not command or not MENTIONS_WRITER.search(command):
-        return False
-    if INTERPRETER.search(command):
-        return True
-    for fragment in SEPARATORS.split(command):
-        tokens = fragment.strip().split()
-        while tokens and tokens[0] in ("&", ".", "call", "start"):
-            tokens = tokens[1:]
-        if tokens and tokens[0].strip("'\"").replace("\\", "/").lower().endswith("docs_edit.py"):
-            return True
-    return False
+    return invokes_script(command, "docs_edit")
 
 
 def decide(command: str, caller: str | None) -> tuple[bool, str]:
