@@ -476,7 +476,32 @@ def g4(ev: Evidence) -> dict:
     prop = sh("scripts/docs_propose.py", "add-topic", "--ref", t_ref, "--doc", sacrificial["doc_id"])
     ev.cmd(f"docs_propose.py add-topic --ref {t_ref} --doc <G4 fixture>", prop)
     path = next(ln.split(None, 1)[1] for ln in prop.out.splitlines() if ln.startswith("proposal:"))
-    ev.add(f"- deleted the G4 fixture through Drive: `{make_fixtures.delete_fixture_doc(sacrificial['doc_id'])}`")
+    import google_creds  # noqa: PLC0415
+
+    if google_creds.DRIVE in google_creds.granted_scopes():
+        ev.add(f"- deleted the G4 fixture through Drive: `{make_fixtures.delete_fixture_doc(sacrificial['doc_id'])}`")
+    else:
+        # Taylor's Phase 1 consent has no Drive scope, so a Doc cannot be deleted from
+        # here. The same condition (a registered Doc Google cannot return) is produced by
+        # pointing the registered row, and the proposal it was made for, at an id that
+        # does not exist. Labelled, so it is never mistaken for a real deletion.
+        missing = sacrificial["doc_id"][:-6] + "Zz9Zz9"
+        with ea_db.connect() as conn:
+            conn.execute("UPDATE docs SET doc_id = ? WHERE doc_id = ?", (missing, sacrificial["doc_id"]))
+            conn.execute("UPDATE proposals SET doc_id = ? WHERE doc_id = ?", (missing, sacrificial["doc_id"]))
+        proposal_file = ROOT / path
+        body = json.loads(proposal_file.read_text(encoding="utf-8"))
+        body["doc_id"] = missing
+        proposal_file.write_text(json.dumps(body, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        import docs_propose  # noqa: PLC0415
+
+        with ea_db.connect() as conn:
+            conn.execute("UPDATE proposals SET sha256 = ? WHERE path = ?",
+                         (docs_propose.proposal_sha(json.loads(proposal_file.read_text(encoding="utf-8"))),
+                          Path(path).as_posix()))
+        sacrificial = dict(sacrificial, doc_id=missing)
+        ev.add(f"- SIMULATED deletion (this token has no Drive scope): the registered G4 row now points at "
+               f"`{missing}`, an id Google cannot return")
     with ea_db.connect() as conn:
         conn.execute("UPDATE docs SET role = 'g4_deleted' WHERE doc_id = ?", (sacrificial["doc_id"],))
     deleted = sh("scripts/docs_edit.py", "add-topic", "--doc", sacrificial["doc_id"], "--proposal", path)
@@ -552,6 +577,8 @@ def main() -> int:
     register_test = sh("scripts/register.py", "--self-test")
     units = subprocess.run([PY, "-m", "unittest", "discover", "-s", "tests", "-t", "."], cwd=str(ROOT),
                            capture_output=True, text=True, encoding="utf-8", errors="replace", env=ENV, timeout=600)
+    contracts = sh("scripts/validate_agent_contracts.py")
+    vendored = sh("scripts/check_vendored.py", "--upstream", "PIPER=C:/PIPER", "--upstream", "STEVIE=C:/Users/kells/STEVIE")         if Path("C:/PIPER").exists() else sh("scripts/check_vendored.py")
 
     tests = [("P1.1", p11), ("P1.2", p12), ("P1.3", p13)]
     results: dict[str, dict] = {}
@@ -632,7 +659,10 @@ def main() -> int:
     lines += mutation.out.strip().splitlines() + ["```", "", "## Register self-test and unit tests", "",
                                                    f"`python scripts/register.py --self-test` -> exit {register_test.code}", "", "```"]
     lines += register_test.out.strip().splitlines() + ["```", "", f"`python -m unittest discover -s tests -t .` -> exit {units.returncode}", "", "```"]
-    lines += (units.stderr.strip().splitlines()[-4:]) + ["```", ""]
+    lines += (units.stderr.strip().splitlines()[-4:]) + ["```", "",
+              f"`python scripts/validate_agent_contracts.py` -> exit {contracts.code}", "", "```"]
+    lines += contracts.out.strip().splitlines() + ["```", "", f"`python scripts/check_vendored.py` (upstreams when present) -> exit {vendored.code}", "", "```"]
+    lines += vendored.out.strip().splitlines() + ["```", ""]
 
     text = "\n".join(lines) + "\n"
     import validate_content_rules  # noqa: PLC0415
@@ -648,8 +678,10 @@ def main() -> int:
     for name in ("P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P1.6", "G1", "G4", "G5"):
         print(f"  {name:5} {'Passed' if results[name]['ok'] else 'FAILED'}  {results[name]['summary'][:110]}")
     print(f"  guardrails exit {guard.code}, mutation exit {mutation.code}, register self-test exit "
-          f"{register_test.code}, unit tests exit {units.returncode}")
-    return 1 if failed or guard.code or mutation.code or register_test.code or units.returncode else 0
+          f"{register_test.code}, unit tests exit {units.returncode}, contracts exit {contracts.code}, "
+          f"vendored exit {vendored.code}")
+    return 1 if (failed or guard.code or mutation.code or register_test.code or units.returncode
+                 or contracts.code or vendored.code) else 0
 
 
 if __name__ == "__main__":

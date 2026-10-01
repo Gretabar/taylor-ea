@@ -49,3 +49,6 @@ venv/
 .idea/
 Thumbs.db
 desktop.ini
+
+# Machine-local Claude Code settings (for example EA_FIXTURE_MODE for a fixture session).
+.claude/settings.local.json

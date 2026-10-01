@@ -25,6 +25,7 @@ COMMANDS
                     --actor taylor|agent:reed|... [--source ...] [--note ...]
     complete        <ref> --via chat|doc [--actor ...] [--source ...]
     owed            [--person <key>] [--json]     Taylor's open commitments, by person
+    morning         [--date YYYY-MM-DD]           the /morning screen, from the register only
     history         <ref>                         every change, and the move count
     needs-input     list | resolve <Q-ref> --answer "..." | add --question ...
     resolve-person  "<name as heard>"             resolved | ambiguous | unresolved
@@ -48,7 +49,7 @@ import re
 import sqlite3
 import sys
 import tempfile
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -586,6 +587,91 @@ def history(conn: sqlite3.Connection, ref: str) -> dict:
             "moved": moves, "date_changes": dated, "events": events}
 
 
+def morning(conn: sqlite3.Connection, today: date | None = None) -> dict:
+    """Everything /morning shows, from the register and the audit table only. Read only.
+
+    Order is the design: liveness first, because an empty list looks identical
+    whether nothing is due or nothing has run for six days.
+    """
+    tz_name = identity().get("timezone") or "America/Toronto"
+    tz = zone(tz_name)
+    day = today or datetime.now(tz).date()
+    out: dict = {"date": day.isoformat()}
+
+    job = "ea_tick_fixtures" if ea_db.fixture_mode() else "ea_tick"
+    tick = conn.execute("SELECT ts FROM job_ticks WHERE job = ? AND status = 'ok' ORDER BY ts DESC LIMIT 1",
+                        (job,)).fetchone()
+    if tick is None:
+        out["tick_hours"] = None
+    else:
+        stamp = datetime.fromisoformat(tick["ts"])
+        out["tick_hours"] = round((datetime.now(stamp.tzinfo) - stamp).total_seconds() / 3600.0, 1)
+    marker = REPO_ROOT / "state" / "AUDIT-DEGRADED"
+    out["audit_degraded"] = marker.exists()
+    fx = 1 if ea_db.fixture_mode() else 0  # the fixture database shows its fixtures; the live one never does
+
+    meetings = []
+    for m in conn.execute("SELECT m.*, p.key, p.full_name FROM meetings m JOIN people p ON p.id = m.person_id"
+                          " WHERE m.next_at IS NOT NULL AND m.fixture = ?", (fx,)):
+        when = datetime.fromisoformat(m["next_at"]).astimezone(tz)
+        if when.date() == day:
+            doc = conn.execute("SELECT url FROM docs WHERE person_id = ? AND role = 'running_1on1' AND fixture = ?",
+                               (m["person_id"], fx)).fetchone()
+            meetings.append({"person": m["key"], "at": when.strftime("%H:%M"), "doc": doc["url"] if doc else None})
+    out["meetings_today"] = meetings
+
+    me = person(conn, owner_key())
+    horizon = (day + timedelta(days=2)).isoformat()
+    out["due_soon"] = [dict(r) for r in conn.execute(
+        "SELECT ref, text, due_date, status FROM actions WHERE owner_person_id = ? AND status = 'open'"
+        " AND due_date IS NOT NULL AND due_date <= ? ORDER BY due_date", (me["id"] if me else -1, horizon))]
+    for item in out["due_soon"]:
+        item["overdue"] = item["due_date"] < day.isoformat()
+    out["doc_attention"] = [dict(r) for r in conn.execute(
+        "SELECT i.item_ref, i.last_seen_state, d.title FROM doc_items i JOIN docs d ON d.doc_id = i.doc_id"
+        " WHERE d.fixture = ? AND i.last_seen_state IN ('missing','ambiguous','unreadable') ORDER BY i.item_ref",
+        (fx,))]
+    out["needs_input"] = [dict(r) for r in conn.execute(
+        "SELECT ref, question FROM needs_input WHERE status = 'open' ORDER BY id")]
+    out["register_ahead"] = [dict(r) for r in conn.execute(
+        "SELECT a.ref, a.text, d.title FROM actions a JOIN doc_items i ON i.item_ref = a.ref AND i.item_kind = 'action'"
+        " JOIN docs d ON d.doc_id = i.doc_id WHERE a.status = 'done' AND a.completed_via = 'chat'"
+        " AND i.last_seen_state = 'open' AND d.fixture = ?", (fx,))]
+    start = datetime.combine(day - timedelta(days=1), datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
+    end = datetime.combine(day, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
+    out["doc_writes_yesterday"] = [dict(r) for r in conn.execute(
+        "SELECT ts, decision, rule_id, target, detail FROM audit WHERE hook = 'docs_edit' AND ts >= ? AND ts < ?"
+        " ORDER BY ts", (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")))]
+    return out
+
+
+def render_morning(m: dict) -> str:
+    rule = "=" * 60
+    lines = [f"MORNING {m['date']}"]
+    hours = m["tick_hours"]
+    if hours is None or hours > 26:
+        lines += [rule, "LAST TICK " + ("NEVER RECORDED" if hours is None else f"{hours / 24:.1f} DAYS AGO"),
+                  "The background reconcile has not run. Everything below may be stale. Tell Mike.", rule]
+    else:
+        lines.append(f"tick OK ({hours:.0f}h ago)")
+    if m["audit_degraded"]:
+        lines += [rule, "AUDIT DEGRADED: decisions are not being fully recorded. Tell Mike.", rule]
+    sections = [
+        ("Today", [f"{x['at']}  {x['person'].title()}  {x['doc'] or '(no Doc linked)'}" for x in m["meetings_today"]]),
+        ("Your actions due in 48h or overdue",
+         [f"{x['ref']}  {'OVERDUE ' if x['overdue'] else ''}{x['due_date']}  {x['text']}" for x in m["due_soon"]]),
+        ("Needs Your Input", [f"{x['ref']}  {x['question']}" for x in m["needs_input"]]),
+        ("Doc items to look at", [f"{x['item_ref']}  {x['last_seen_state']}  in {x['title']}" for x in m["doc_attention"]]),
+        ("Done in chat, not yet shown in the Doc", [f"{x['ref']}  {x['text']}  ({x['title']})" for x in m["register_ahead"]]),
+        ("Doc writes yesterday", [f"{x['ts'][11:16]}Z  {x['decision']:<8} {x['rule_id']}  {(x['detail'] or '')[:70]}"
+                                  for x in m["doc_writes_yesterday"]]),
+    ]
+    for title, items in sections:
+        lines.append(title)
+        lines += [f"  {item}" for item in items] or ["  nothing"]
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # rendering
 # ---------------------------------------------------------------------------
@@ -867,6 +953,9 @@ def main() -> int:
     p = sub.add_parser("show")
     p.add_argument("ref")
 
+    p = sub.add_parser("morning")
+    p.add_argument("--date")
+
     args = parser.parse_args()
     conn = ea_db.connect()
     ea_db.migrate(conn)
@@ -965,6 +1054,10 @@ def main() -> int:
             rows = [dict(r) for r in conn.execute(sql + " ORDER BY t.id", params)]
             _emit(rows, args.json, "\n".join(
                 f"{r['ref']}  {r['person']:<7} {r['status']:<8} {r['text']}" for r in rows) or "no topics")
+            return 0
+        if args.cmd == "morning":
+            result = morning(conn, date.fromisoformat(args.date) if args.date else None)
+            _emit(result, args.json, render_morning(result))
             return 0
         if args.cmd == "show":
             ref = args.ref.upper()

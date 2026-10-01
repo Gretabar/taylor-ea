@@ -63,7 +63,7 @@ Vendored 2026-10-01.
 | `.claude/hooks/_health.py` | `-` | `-` | `-` | `2ab3ed936716efb6b290c479a5e8790e461fa14965ecd2165a81d22e8b7b19ac` | NEW |
 | `.claude/hooks/require-delivery-agent.py` | `-` | `-` | `-` | `190205d929fbf92aea96e769fa90b13957a11e20fbb428b1fa00969fc9a68357` | NEW |
 | `.claude/hooks/protect-architecture.py` | `-` | `-` | `-` | `e4643ed1eb8fee8f4deaf561ed6747ffe22dd7397f96daf75706376e05651da9` | NEW |
-| `scripts/register.py` | `-` | `-` | `-` | `c6bd14f0bf119f03298d30a530417778a61bf49538bd284769b670d26cf88969` | NEW |
+| `scripts/register.py` | `-` | `-` | `-` | `caa01bdd12fea9fd53aa87753d31c0e7525eec001f470933ea5558aa112e7e2b` | NEW |
 | `scripts/google_creds.py` | `STEVIE:scripts/upload_to_drive.py` | `untracked` | `8501f0e5e2c0f6c5e0b8220ae2a650eb7af453cb413b64666690889f6674f883` | `9edf8952c0912ac2a203685ee23ec5559974dcbb443678d562fe3bec37a3924b` | PORT |
 | `scripts/google_auth.py` | `STEVIE:scripts/marketing_report/google_auth.py` | `e3f42d2` | `92c3d715e28338de6aaef8b9c6241f8ac8c1abe14810b6ec3a841a5f1c272f8e` | `bc6115a7feb84c96743b96c71d1c4284ee80f65804f1dc59bd1ab494b03d84c5` | PORT |
 | `scripts/docs_read.py` | `-` | `-` | `-` | `7d8a81a3b9a1ccb98a44180afbfb8eea72249b06b6765817bebe19ddfed6590e` | NEW |
@@ -75,11 +75,48 @@ Vendored 2026-10-01.
 | `scripts/docs_propose.py` | `-` | `-` | `-` | `5caf67bc93a6f62196cec58ef55c22ad0efcbe296291aab91f283b93b161b355` | NEW |
 | `scripts/docs_edit.py` | `-` | `-` | `-` | `2918114b463df9c0a56192c2f846dadf027dc98b0e8b83a9c22c4679758d3603` | NEW |
 | `scripts/docs_reconcile.py` | `-` | `-` | `-` | `8ae92c49a91167132497725c67a1d29f304c73eaad1f9b7a0bee4054362d74e7` | NEW |
-| `scripts/acceptance.py` | `-` | `-` | `-` | `1e8325250af5090ac26048270d96891722106d2c665307124606871f3312ecbc` | NEW |
+| `scripts/acceptance.py` | `-` | `-` | `-` | `cf6be4c7b0e58b7e77d1578c1c64abb7d8edee76f8b5c42edc9af9db1ecb06c6` | NEW |
 | `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `346d8159621e904f75c2156a1123fec232d3f1d7775ad27d82086bb5d558d5bc` | PORT |
 | `scripts/run_ea_tick.ps1` | `PIPER:scripts/run_cadence_tick.ps1` | `untracked` | `d7233a6d93db66768bebbb3ca61591de41356a88a56a0ad92ddbd621d6ddccb2` | `5ec03f6aa2b6196c05ab6c4abaee5125de8c167fd1e17bc3f0457b16bad787fa` | PORT |
 | `scripts/schedule_ea_tick.ps1` | `PIPER:scripts/schedule_cadence_tick.ps1` | `untracked` | `6189ca47717bb64d4bb7521b69f166330ddac8939e4a05dd57936f9d2e88ca7e` | `1124899fae5c81fbee7ed096a2a5b4d2de64096a42b947a665dae37e4f47fb79` | PORT |
 | `tests/test_review_regressions.py` | `-` | `-` | `-` | `29a18ae6c2d0661c9738e5a7048340e0fb5e2c2ebbfdcb0a97042c7275af1f4b` | NEW |
+| `CLAUDE.md` | `PIPER:CLAUDE.md` | `untracked` | `69509762462f6260b6c304ec5d961f08d31b2f470cbfe510528ad2338b4e1110` | `cc6cb6d9fde1c10581ccc65b9e3bfe74f50cc1350a0b81f642feca4c6ea0b412` | PORT |
+| `INSTALL.md` | `PIPER:INSTALL.md` | `untracked` | `71494b8f86647305929d26d53569b0a363f6c7dfccb378b744964707821284d1` | `808b65b25ece18b63b50a383e78a35e28e939a60be6aebabd1d66240aba51a2b` | PORT |
+| `.claude/commands/NAME.md` | `PIPER:commands/piper.md` | `untracked` | `4179aeadf432a83d0059901d3e41f644f6b0046b191e14fe6982a326d0b007a8` | `79c7f435d8e3ac650a8eb23f14219736202df87509e9585646d2288638d69edb` | PORT |
+| `.claude/commands/boi.md` | `PIPER:commands/boi.md` | `untracked` | `d11a8b7ddf7f017122bf5306b4e6af5012bb235953f9279ef83651d3595851f1` | `1dc9c68c6710eb109cffda37e8d0f0ed51f44f83a59f0314a4759095e7c95d6f` | PORT |
+| `.claude/commands/morning.md` | `PIPER:commands/morning.md` | `untracked` | `c0d593c9f1932adb00b2d7b2b13c31e58721febbd901a1ae22c515ee1de63762` | `186ccb388079a976b27fd387382e1367dd41858ad1753e6278d5a6fb6401e10c` | PORT |
+| `.claude/skills/reality-checker/SKILL.md` | `PIPER:skills/reality-checker/SKILL.md` | `untracked` | `0ff3480d2a25fa7bbb04d75411d4f1c72cb702f3a4ed5fb1ec4c894467199c13` | `1d64153b24f6677d800738fbd6cdb19981f1d252328742dd956ced4a342981cd` | PORT |
+| `.claude/skills/morning-brief/SKILL.md` | `PIPER:skills/morning-brief/SKILL.md` | `untracked` | `64e40682763462be7e357b3cde785fd8d6b8b4ddc7691780c872a9107b238517` | `3ecf105eb88cfe0480cca8d0db9844eaea808f9c4ff05a3261396f5a62d49c5b` | PORT |
+| `.claude/agents/hugo.md` | `PIPER:agents/otis.md` | `untracked` | `2dd4fffbefa433f9b353563625416c2212656186b125357e993d8ad5f3d7730d` | `12393060ce224e4729fdfd1472ac37b833a9d8f55f6effc55a6fd371fffbd05d` | PORT |
+| `.claude/agents/wren.md` | `PIPER:agents/vera.md` | `untracked` | `cfc9ac81fb6b823efdf42c7163b4b445e8afa2a6d0b5e56f330967b380a5c3e7` | `18f6d1d7e03d8860ba09ca9ea3c5eb882c1c4a0c96339d68a4e3868a6bfbc5ee` | PORT |
+| `docs/PRIVACY.md` | `PIPER:docs/PRIVACY.md` | `untracked` | `88a7f85fbcd43959f21459ae65f5d64eddccd197e5c5f36f3d85f94ef68d7d91` | `a82f4333385659ed8775434959056fc283263fa74a0ce92585995cff08b9695e` | PORT |
+| `scripts/ea_doctor.py` | `PIPER:scripts/piper_doctor.py` | `untracked` | `122f92ab171b0e98e6dbd438d864c030f450bc9eed9035eccb5a3d29a5b156df` | `0a419f2cfa75f4f04f8025a11b94e5a9fe50c30eecc096c7499ccca11389fcc9` | PORT |
+| `scripts/build_ea_kit.py` | `PIPER:scripts/build_piper_kit.py` | `untracked` | `0080c36bd42134f51a424dc84fa8b4a2054f56505b0648d858740edb1d6961a5` | `6bc50423697154d04667ee363e1a3bb9f4f87b22593ce2e66ac931e5bc8138c5` | PORT |
+| `scripts/export_ledger.py` | `PIPER:scripts/export_ledger.py` | `untracked` | `7ec4a5b24c17a2acf3fca35b96d4a8f721d451948244a3623d0b1b00616b81cb` | `ec6cd3f362aa2b609cf5721f9e926d382e0b91a978322b1be06c641e98633bac` | PORT |
+| `.gitignore` | `PIPER:.gitignore` | `untracked` | `367e93e20e9ac36fed36e3ac3b044098f0d339a4ea6c4fa955822304d3a8aff1` | `6efcb252c9193a56ce951df6daed0ef43a8b79d766631c0420ca3182070dcd28` | PORT |
+| `.env.example` | `PIPER:.env.example` | `untracked` | `1e43694bb0ba53d1daeb0a8bb1874f29a5307e3148619fef2e150f1409ee4f2e` | `25e301fba8882b549f7bafa132f9da665a5eed13b3d88fe25d9c9726eba45dfd` | PORT |
+| `requirements.txt` | `PIPER:requirements.txt` | `untracked` | `a0cb47cff08849bb572c4381836da9c07c71a4874d1646db622688b304ca47f4` | `15a2869787f5a6a48f9a7e0d7cf2ce26eb13876543e88889ea4a59c46ca4a4b2` | PORT |
+| `context/data-classes.json` | `PIPER:context/data-classes.json` | `untracked` | `2ca484126dab62a834c7b813e8538970c9ad72734190542d8199e41e237f91a7` | `e1b337310f6f003bd8872b7c15d8371a9e1a0c36efd3ed073e5998e50049215a` | PORT |
+| `context/systems.json` | `PIPER:context/systems.json` | `untracked` | `85e907222296390622572c0d1f32549f9e5af2e9586a92784f646d807a7bbaa6` | `d8afc99f011c67cefc920e64fa80fc31a75996c39c2e0f9286865468d91a7dfd` | PORT |
+| `.claude/agents/reed.md` | `-` | `-` | `-` | `44aaf9f4c85c7294f0d02cc5db2337ddb892997b5e7f151b03cb597ebcb3e7d7` | NEW |
+| `.claude/agents/page.md` | `-` | `-` | `-` | `e1d1c514cf9e9cf0a02198cc50f585633631c4890767f04940c23e0ffc2fa98b` | NEW |
+| `.claude/commands/add.md` | `-` | `-` | `-` | `732629e92a23544e3d6974520c5202e4b08cbd6ffaa8d7fb87005e28626c17a5` | NEW |
+| `.claude/commands/owe.md` | `-` | `-` | `-` | `3e1bed7883e2a1986f55ad0fce98463f9fe348fb67d67a8d0bced59bb5d77fea` | NEW |
+| `.claude/skills/capture-rules/SKILL.md` | `-` | `-` | `-` | `546cc0a9f5c7c0a0b062ad94b39343a699c52932586c566acf679cbab295ead3` | NEW |
+| `.claude/skills/doc-editor/SKILL.md` | `-` | `-` | `-` | `e797d5fb9f90eaf5ba3004689c24e55ef3ff1a35b39a78bc330b3bc49572ec70` | NEW |
+| `.claude/skills/delivery-gate/SKILL.md` | `-` | `-` | `-` | `7eab9d5ccd6b0ec3a31245ac510f6b31f053fcf8039d7957b694cdaa976af575` | NEW |
+| `docs/DEVIATIONS.md` | `-` | `-` | `-` | `37e72205c8f1ee8973e0609797dcb52571f78723f8f69021eebb7b7242cffc68` | NEW |
+| `docs/OPEN-QUESTIONS.md` | `-` | `-` | `-` | `1b814c433b1db13bb6f1629423bc20bbe4494a4631d28abec23a587ed8d2df00` | NEW |
+| `context/identity.json` | `-` | `-` | `-` | `6e21785ed016cec904e7943ceea081e43ff4e1d022decfee4825ad74f77e062f` | NEW |
+| `context/roster.json` | `-` | `-` | `-` | `b673648ee3f958762e03c5d4a94efd7bc44c9f68737e03ee77b9e8b9be72f9ee` | NEW |
+| `context/roster-agents.json` | `-` | `-` | `-` | `de25405f4b43a0b78cf7ed61ed012bba264890039d011d790609564466ea1e84` | NEW |
+| `context/architecture/blueprint.md` | `-` | `-` | `-` | `937d367beb8214d42f564f4ae37e008e2acfa801fd8057d1074899fc34492977` | NEW |
+| `context/architecture/CHANGE-LOG.md` | `-` | `-` | `-` | `b60339ca1f134dc56bd2a17e77cfd043a47c10b177a813946657029e010dd5d4` | NEW |
+| `context/architecture/deviations.json` | `-` | `-` | `-` | `1e9b0a1e6ca83c9e66edc82b7e6a3fed1538eca7a285d85d2c3620ebd803cb76` | NEW |
+| `.gitattributes` | `-` | `-` | `-` | `efc2b1dbd43d2b07680511836c9869bd99e450910cda0a4fe257954271f1c246` | NEW |
+| `tests/__init__.py` | `-` | `-` | `-` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | NEW |
+| `tests/fixtures/kaed_fixture_document.json` | `-` | `-` | `-` | `23699f79c4dd951d76cf44b9872f4d3faa2b0eb45b151b4e4d9fe941342f642b` | NEW |
+| `tests/fixtures/kaed_section_map.json` | `-` | `-` | `-` | `74b916c5d60e1705d12313182af5df84d2921196dd17d6019865b0fb4782a110` | NEW |
 <!-- end of manifest table -->
 
 ## What changed, and why
@@ -122,3 +159,25 @@ Dispatch detection, the hook-field helpers, the run lock and the lock primitive 
 **`scripts/validate_guardrails.py`** (PORT) New fixtures for this system's gates, every case's verdict printable, and `--mutation-test`, which removes each gate and proves the self-test notices.
 
 **`scripts/check_vendored.py`** (PORT) Two upstreams, NEW rows, `--rehash`, `--add`.
+
+**`scripts/google_creds.py`** (PORT, from STEVIE `scripts/upload_to_drive.py` `load_credentials`) One `load_credentials(scopes)`; paths from `EA_ROOT/state/` only; both token shapes; scopes checked before any network call; refreshed per process and never written back.
+
+**`scripts/google_auth.py`** (PORT, from STEVIE `scripts/marketing_report/google_auth.py`) The installed-app consent kept; login hint from `context/identity.json`; granted scopes checked after consent; `--check` mode. Not run on the build machine.
+
+**`scripts/ea_tick.py`** (PORT, from `cadence_tick.py`) The frame kept (lock across the run, heartbeat only when earned, exit codes, dry run on an in-memory copy); the body replaced with read-only reconciliation and Calendar refresh; fixture ticks on their own lock and job name.
+
+**`scripts/run_ea_tick.ps1`, `scripts/schedule_ea_tick.ps1`** (PORT) The outside-the-process exit watch, the alarm, the append-not-truncate log and the battery flags kept; `-Live` dropped (no send path); task `EA-Tick` at 07:00.
+
+**`scripts/ea_doctor.py`** (PORT, from `piper_doctor.py`) Google, Docs, Calendar, the build marker and D-1 instead of Docebo and PUSH.
+
+**`scripts/build_ea_kit.py`** (PORT, from `build_piper_kit.py`) `.claude/` layout; NEVER_COPY adds the Google client and token, the build marker and the fixture database; the gate adds Google's secret shapes; `docs/acceptance/` stays behind.
+
+**`scripts/export_ledger.py`** (PORT) A register snapshot; names make it `records`, so it may only land under `state/records/`.
+
+**`CLAUDE.md`, `INSTALL.md`** (PORT) PIPER's structure (rules first, enforcement named, the privacy paragraph) re-written for this system; CLAUDE.md is distilled and points at blueprint sections instead of importing them.
+
+**`.claude/commands/NAME.md`, `boi.md`, `morning.md`; skills `reality-checker`, `morning-brief`; agents `hugo.md` (from OTIS), `wren.md` (from VERA's delivery role); `docs/PRIVACY.md`** (PORT) Lanes READ and CAPTURE replace PIPER's FAST/STANDARD/FULL; PRIVACY keeps "A Claude Enterprise seat is not a privacy control" verbatim.
+
+**`.gitignore`, `.env.example`, `requirements.txt`, `context/data-classes.json`, `context/systems.json`** (PORT) Re-cut for this system: Google credentials by name, `tzdata` added, Playwright and requests dropped, three data classes, Google hosts only.
+
+**Not recorded here:** `README.md`, `docs/FOR-TAYLOR.md`, `docs/PLAYBOOK.md` and `docs/FIRST-PROMPT.md` are ANNIE's, written in parallel and owned by her, so their hashes would go stale every time she edits. `docs/acceptance/` is generated evidence, regenerated by `scripts/acceptance.py`.
