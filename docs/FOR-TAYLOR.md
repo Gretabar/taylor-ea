@@ -1,6 +1,6 @@
 # NAME, for Taylor
 
-NAME is the executive-assistant system Mike built for you, the same kind of system he runs for himself (STEVIE), scoped to exactly what Phase 1 of your own blueprint asks for: a running document for each of your six 1:1s and one canonical Action Register, kept straight without you having to hold all of it in your head. You'll see REED, PAGE, WREN and HUGO named in what it does. You don't need to track which does what to use it, it's here so you know what's actually happening when something runs.
+NAME is the executive-assistant system Mike built for you, the same kind of system he runs for himself (STEVIE), scoped to exactly what Phase 1 of your own blueprint asks for: a running document for each of your six 1:1s and one canonical Action Register, kept straight without you having to hold all of it in your head. You'll see REED, PAGE, WREN, HUGO, SAGE and LARK named in what it does now, out of a team of thirteen. You don't need to track which does what to use it, it's here so you know what's actually happening when something runs. The full team is under Your team below.
 
 ## The five commands you'll use
 
@@ -33,6 +33,25 @@ Neither one means you did anything wrong. Both mean tell Mike.
 - **Move it.** Give the new date ("push Casey's bonus structure to Friday October 9"). The old date stays in history, ask `/owe history <ref>` to see how many times it's moved.
 - **Wrong person.** Correct it the way you'd correct a person ("that one's Kaed, not Cade"). It fixes the one you meant. It does not create a second Kaed.
 - **Change a rule.** Say `architecture change ok` plus the change itself. It updates and adds a dated line to your Architecture Change Log. Ask "show me all architecture changes" anytime to see it.
+
+## Your team
+
+NAME never does the work itself. It hands every job to the right specialist, thirteen of them in all. You don't need to track any of this to use the five commands above, it's here for when you want to know who's actually doing the work, or when NAME tells you someone isn't on yet.
+
+**On now.** REED keeps the Action Register honest and never invents an owner or a deadline. PAGE reads your running Docs and works out where something belongs. WREN is the only one that actually writes into them, and reads every write back before calling it done. HUGO gets things unstuck when a token expires or something looks wrong. SAGE is the privacy check: it only steps in when something personal is headed for a Doc your managers can read, things like health, family, leave, discipline, or one person's pay, and when it does, it can hold the item and offer to keep it in your private notes instead. LARK answers "prep me for Kaed" (or anyone else on your six) with a short, read-only briefing: what you owe Kaed, what Kaed owes you, what's queued for your next 1:1. The 7am version that lands without asking is Phase 3 and isn't on yet.
+
+**Waiting on a phase.** MILO (meetings and transcripts) and RUTH (professional documentation, drafted privately, you decide if it's coaching or discipline, not RUTH) are both Phase 2. ATLAS (projects and company knowledge) is Phase 4. CLEO (reservation and corporate-event replies) is Phase 5. JUNE (calendar) is Phase 7.
+
+**Needs your say.** PENN (sales and events: Tania's commission, promoter and event ROI, stale leads with Moreen) sits outside your architecture as it stands. TALLY (reporting) is Phase 6, the one you deferred.
+
+A switched-off agent costs nothing to ask for. Nothing runs and nothing gets billed, you're told instantly what it needs:
+
+- **Before a phase is on.** `NOT SWITCHED ON YET: MILO (meetings and transcripts), Phase 2.` `To switch it on: say "architecture change ok: switch on Phase 2", and Mike builds it.`
+- **After you say the phrase, before Mike finishes building.** `APPROVED, NOT BUILT YET: MILO (meetings and transcripts), Phase 2.` `Mike is building it; nothing to do on your side.`
+- **PENN, outside the architecture.** `NOT SWITCHED ON: PENN (sales and events pipeline) is outside your architecture.` `To switch it on: say "architecture change ok: add PENN", then Mike builds it.`
+- **TALLY, the phase you deferred.** `NOT SWITCHED ON: TALLY (reporting) is Phase 6, which you deferred.` `To switch it on: say "architecture change ok: resume Phase 6", then Mike builds it.`
+
+Switching a phase on, or adding PENN, is your call, the same phase gate as everything else in your blueprint. Say the phrase and it's logged in your Architecture Change Log the same day. It goes live once Mike has actually built and tested it, not the moment you say it.
 
 ## Where the register lives
 

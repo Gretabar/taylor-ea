@@ -19,7 +19,15 @@ NAME keeps your six running 1:1 documents and one Action Register straight, so y
 - Completion that works both ways. Mark it done in chat, or type Done in its Status cell yourself, either one closes the loop.
 - History you shouldn't have to hold yourself. How many times something's moved, what's still open with each person, on request.
 
-You don't need to know which of the team does what, NAME works that out. If you want to know anyway: REED keeps the Action Register honest and never invents an owner or a deadline, PAGE reads your running Docs and works out where something belongs, WREN is the only one that actually writes into them and reads every write back before calling it done, and HUGO gets things unstuck when a token expires or something looks wrong. Four more (MILO, LARK, ATLAS, CLEO) are scoped for later phases, transcripts, the morning brief, projects, reservations, once Phase 1's proven out.
+You don't need to know which of the team does what, NAME works that out. If you want to know anyway, here's the roster:
+
+| Status | Who |
+| --- | --- |
+| On now | REED, PAGE, WREN, HUGO, SAGE, LARK (read-only prep only for now) |
+| Waiting on a phase | MILO and RUTH (Phase 2), ATLAS (Phase 4), CLEO (Phase 5), JUNE (Phase 7) |
+| Needs your say | PENN (sales and events pipeline), TALLY (reporting, Phase 6, which you deferred) |
+
+A switched-off agent costs nothing to ask for, it answers instantly with what it needs to switch on.
 
 ## Nothing goes out without you (not yet, anyway)
 
@@ -29,4 +37,4 @@ That's the only kind of write it does. No email goes out, from you or on your be
 
 ## More
 
-`docs/FOR-TAYLOR.md` has the five commands with real examples, what NAME writes and never touches, and the two signals that mean something's broken. `docs/PLAYBOOK.md` is one page of habits that make it fast and cheap to run.
+`docs/FOR-TAYLOR.md` has the five commands with real examples, your full team, what NAME writes and never touches, and the two signals that mean something's broken. `docs/PLAYBOOK.md` is one page of habits that make it fast and cheap to run.
