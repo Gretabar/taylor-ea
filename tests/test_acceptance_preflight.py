@@ -8,7 +8,7 @@ overwrote the committed passing report. These pin the fix:
     and the report on disk is byte-for-byte untouched (sha256 before and after);
   - fresh fixtures pass the check, including a Doc whose revision moved with no
     content change, while changed, deleted and unreadable Docs do not;
-  - a harness crash in P1.6 or G4 is Blocked, a broken script is still FAILED;
+  - a harness crash in any leg is Blocked, a misbehaving script is still FAILED;
   - a FAILED leg's summary is marked as what was expected, so it cannot read like a pass.
 
 The refusal tests drive the real script in a throwaway EA_ROOT. Everything else
@@ -21,6 +21,7 @@ import hashlib
 import importlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -201,60 +202,120 @@ class LeftoverStateCheck(unittest.TestCase):
 
 
 class HarnessCrashIsBlocked(unittest.TestCase):
-    """P1.6 and G4: a harness crash is Blocked; the system under test failing is FAILED."""
+    """Any leg: a harness crash is Blocked (blueprint s.12, "cannot be exercised"); a script
+    under test that misbehaves is FAILED, including where its misbehaviour would otherwise
+    have surfaced as a harness exception."""
+
+    SEED = {"built_at": "2026-10-01T16:00:00+00:00", "cadence": "biweekly", "timezone": "America/Toronto",
+            "last_start": "2026-09-30T10:00:00-04:00"}
 
     def setUp(self):
         env = mock.patch.dict(os.environ)
         env.start()
         self.addCleanup(env.stop)
         self.acceptance = load_acceptance()
-        self.meeting = {"id": 5, "cadence_observed": "biweekly", "next_at": "2026-10-14T10:00:00-06:00"}
+        self.meeting = {"id": 5, "cadence_observed": "biweekly", "next_at": "2026-10-14T10:00:00-04:00"}
 
-    def leg(self, name, fn, *, sh_result, sacrificial=True):
+    def leg(self, fn, *, sh_result, rows=None, sacrificial=True, **stubs):
+        """Run one real leg with the subprocess, register and Doc seams stubbed."""
         a = self.acceptance
 
-        def rows(sql, *params):
+        def default_rows(sql, *params):
             if "g4_sacrificial" in sql:
                 return [{"doc_id": "G4DOC"}] if sacrificial else []
             return [self.meeting]
 
-        with mock.patch.object(a, "sh", return_value=sh_result), mock.patch.object(a, "rows", side_effect=rows), \
-                mock.patch.object(a, "scalar", return_value=6):
-            _, result = a.run_leg(name, fn)
+        patches = [mock.patch.object(a, "sh", return_value=sh_result),
+                   mock.patch.object(a, "rows", side_effect=rows or default_rows),
+                   mock.patch.object(a, "scalar", return_value=6),
+                   mock.patch.object(a, "fixture_seed", return_value=self.SEED)]
+        patches += [mock.patch.object(a, attr, value) for attr, value in stubs.items()]
+        for patcher in patches:
+            patcher.start()
+        try:
+            _, result = a.run_leg(fn)
+        finally:
+            for patcher in reversed(patches):
+                patcher.stop()
         return a.verdict(result), result["summary"]
 
-    def test_p16_on_a_replayed_capture_is_blocked_not_failed(self):
+    def test_a_harness_crash_is_blocked_whichever_leg_it_is(self):
+        _, result = self.acceptance.run_leg(lambda ev: {}["ref"])
+        self.assertEqual(self.acceptance.verdict(result), "Blocked")
+        self.assertIn("harness error KeyError", result["summary"])
+
+    def test_a_system_failure_is_failed_whichever_leg_it_is(self):
+        def broken(ev):
+            raise self.acceptance.SystemFailure("register.py add-action exited 1: RegisterError")
+        _, result = self.acceptance.run_leg(broken)
+        self.assertEqual(self.acceptance.verdict(result), "FAILED")
+
+    def test_p13_when_the_harness_cannot_read_the_register_is_blocked(self):
+        def locked(sql, *params):
+            raise sqlite3.OperationalError("database is locked")
+        created = self.acceptance.Run(0, json.dumps({"ref": "A-0003", "created": True}), "")
+        verdict, summary = self.leg(self.acceptance.p13, sh_result=created, rows=locked)
+        self.assertEqual(verdict, "Blocked")
+        self.assertIn("harness error OperationalError: database is locked", summary)
+
+    def test_p13_when_the_register_script_crashes_is_failed(self):
+        crashed = self.acceptance.Run(1, "Traceback (most recent call last): ...", "RegisterError: bad owner")
+        verdict, summary = self.leg(self.acceptance.p13, sh_result=crashed)
+        self.assertEqual(verdict, "FAILED")
+        self.assertIn("system failure: register.py add-action exited 1", summary)
+
+    def test_p13_when_the_register_loses_the_row_it_reported_is_failed(self):
+        created = self.acceptance.Run(0, json.dumps({"ref": "A-0003", "created": True}), "")
+        verdict, summary = self.leg(self.acceptance.p13, sh_result=created, rows=lambda sql, *p: [])
+        self.assertEqual(verdict, "FAILED")
+        self.assertIn("system failure: no action row in the register", summary)
+
+    def test_p11_when_the_topic_was_not_placed_is_failed_not_a_crash(self):
+        a = self.acceptance
+        created = a.Run(0, json.dumps({"ref": "T-0001", "created": True}), "")
+        queued = [{"ref": "T-0001", "status": "queued", "placed_revision_id": None}]
+        parsed = {"tabs": [{"items": []}], "target_tab": 0, "sections": {"taylor_topics": {"items": []}}}
+        verdict, summary = self.leg(
+            a.p11, sh_result=created, rows=lambda sql, *p: queued,
+            doc_of=mock.Mock(return_value={"doc_id": "KAED"}), read=mock.Mock(return_value=parsed),
+            propose_and_apply=mock.Mock(return_value=(a.Run(0, "", ""), a.Run(3, "", "NOT UPDATED"), "")))
+        self.assertEqual(verdict, "FAILED", summary)
+        self.assertTrue(summary.startswith("expected, not observed: 1 topic T-0001"), summary)
+
+    def test_a_proposal_without_its_path_line_is_a_system_failure(self):
+        a = self.acceptance
+        with mock.patch.object(a, "sh", return_value=a.Run(0, "proposal written", "")):
+            with self.assertRaises(a.SystemFailure):
+                a.propose_and_apply("add-topic", "T-0001", a.Evidence())
+
+    def test_p16_on_a_replayed_capture_is_blocked(self):
         replay = self.acceptance.Run(0, json.dumps({"ref": "T-0004", "created": False, "note": "already captured"}), "")
-        verdict, summary = self.leg("P1.6", self.acceptance.p16, sh_result=replay)
+        verdict, summary = self.leg(self.acceptance.p16, sh_result=replay)
         self.assertEqual(verdict, "Blocked")
         self.assertIn("harness error RuntimeError: T-0004 was captured by an earlier run", summary)
 
     def test_p16_when_the_register_script_fails_is_failed(self):
         broken = self.acceptance.Run(1, "", "RegisterError: mark has no running 1:1")
-        verdict, summary = self.leg("P1.6", self.acceptance.p16, sh_result=broken)
+        verdict, summary = self.leg(self.acceptance.p16, sh_result=broken)
         self.assertEqual(verdict, "FAILED")
         self.assertIn("system failure: register.py add-topic exited 1", summary)
 
     def test_p16_when_a_new_capture_drops_meeting_id_is_failed(self):
         no_meeting = self.acceptance.Run(0, json.dumps({"ref": "T-0004", "created": True, "next_at": None}), "")
-        verdict, summary = self.leg("P1.6", self.acceptance.p16, sh_result=no_meeting)
+        verdict, summary = self.leg(self.acceptance.p16, sh_result=no_meeting)
         self.assertEqual(verdict, "FAILED")
         self.assertIn("output has no meeting_id", summary)
 
-    def test_g4_without_its_sacrificial_doc_is_blocked_not_failed(self):
-        verdict, summary = self.leg("G4", self.acceptance.g4, sh_result=self.acceptance.Run(0, "{}", ""),
+    def test_g4_without_its_sacrificial_doc_is_blocked(self):
+        verdict, summary = self.leg(self.acceptance.g4, sh_result=self.acceptance.Run(0, "{}", ""),
                                     sacrificial=False)
         self.assertEqual(verdict, "Blocked")
         self.assertIn("no G4 fixture Doc is registered", summary)
 
-    def test_a_harness_crash_in_other_legs_is_still_failed(self):
-        _, result = self.acceptance.run_leg("P1.1", lambda ev: {}["ref"])
-        self.assertEqual(self.acceptance.verdict(result), "FAILED")
-
     def test_a_failed_leg_does_not_read_like_a_pass(self):
         summary = "1 topic T-0001 placed in Kaed's taylor_topics, 0 actions, 0 meetings created"
-        _, failed = self.acceptance.run_leg("P1.1", lambda ev: {"ok": False, "summary": summary})
-        _, passed = self.acceptance.run_leg("P1.1", lambda ev: {"ok": True, "summary": summary})
+        _, failed = self.acceptance.run_leg(lambda ev: {"ok": False, "summary": summary})
+        _, passed = self.acceptance.run_leg(lambda ev: {"ok": True, "summary": summary})
         self.assertEqual(failed["summary"], f"expected, not observed: {summary}")
         self.assertEqual(passed["summary"], summary)
 

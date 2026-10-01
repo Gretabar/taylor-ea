@@ -353,8 +353,17 @@ def verify(service, doc_id: str, smap: dict, expect_table: bool) -> dict:
     return parsed
 
 
-def seed_meeting(conn, key: str, cadence: str, tz_name: str, now: datetime) -> int:
-    """A fixture meeting from a synthetic events.instances response: last yesterday, next one gap on."""
+FIXTURE_CALENDAR = ea_db.REPO_ROOT / "state" / "records" / "fixture-calendar"
+
+
+def seed_meeting(conn, key: str, cadence: str, tz_name: str, now: datetime, records: Path = FIXTURE_CALENDAR) -> int:
+    """A fixture meeting from a synthetic events.instances response: last yesterday, next one gap on.
+
+    `now` is the build time and `records` where the seed is written, so a test can seed
+    any day without touching state/. The record keeps the seed parameters beside the
+    response: acceptance.py computes P1.6's expectation from what was SEEDED, never from
+    the next_at the code under test derived and stored.
+    """
     from zoneinfo import ZoneInfo  # noqa: PLC0415
 
     yesterday = (now.astimezone(ZoneInfo(tz_name)) - timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
@@ -367,10 +376,10 @@ def seed_meeting(conn, key: str, cadence: str, tz_name: str, now: datetime) -> i
         first = yesterday - timedelta(days=every)
     response = calendar_next.synthetic_instances(first, every, 6, series_id=f"fixture-{key}")
     result = calendar_next.next_meeting(response, now, tz_name)
-    records = ea_db.REPO_ROOT / "state" / "records" / "fixture-calendar"
     records.mkdir(parents=True, exist_ok=True)
-    (records / f"{key}.json").write_text(json.dumps({"ea-class": "records", "response": response}, indent=1),
-                                         encoding="utf-8")
+    seed = {"built_at": now.isoformat(), "cadence": cadence, "timezone": tz_name, "last_start": yesterday.isoformat()}
+    (records / f"{key}.json").write_text(json.dumps({"ea-class": "records", "seed": seed, "response": response},
+                                                    indent=1), encoding="utf-8")
     pid = conn.execute("SELECT id FROM people WHERE key = ?", (key,)).fetchone()["id"]
     with conn:
         conn.execute(

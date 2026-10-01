@@ -69,13 +69,13 @@ Vendored 2026-10-01.
 | `scripts/docs_read.py` | `-` | `-` | `-` | `7d8a81a3b9a1ccb98a44180afbfb8eea72249b06b6765817bebe19ddfed6590e` | NEW |
 | `scripts/link_docs.py` | `-` | `-` | `-` | `90855f7ecdfb52c43fdfa75b290b43f3728525cfdb3fd74549f69c73ec8d20c5` | NEW |
 | `scripts/calendar_next.py` | `-` | `-` | `-` | `c3f4a9d7bd0108a926447d6d8297542bb1f3ddc2741243b5ad1b4dd5028c3114` | NEW |
-| `scripts/make_fixtures.py` | `-` | `-` | `-` | `756b456e36649fe3b357ff63638ab6480b1aaa64e6b2bb878923c86f26cc2b61` | NEW |
+| `scripts/make_fixtures.py` | `-` | `-` | `-` | `60760db39629dc49b9595294711dcb59b33a21b051e756184ba12d645a5b106d` | NEW |
 | `tests/test_calendar_next.py` | `-` | `-` | `-` | `39b93a6afe224422e711ce8b14e1edb8c4ba08c99d0544ff214f8f42dce37c22` | NEW |
 | `tests/test_docs_read.py` | `-` | `-` | `-` | `eaced801952ec08874cba7972d324fcf9e146dd957cb3541da9c05295e561242` | NEW |
 | `scripts/docs_propose.py` | `-` | `-` | `-` | `5caf67bc93a6f62196cec58ef55c22ad0efcbe296291aab91f283b93b161b355` | NEW |
 | `scripts/docs_edit.py` | `-` | `-` | `-` | `2918114b463df9c0a56192c2f846dadf027dc98b0e8b83a9c22c4679758d3603` | NEW |
 | `scripts/docs_reconcile.py` | `-` | `-` | `-` | `8ae92c49a91167132497725c67a1d29f304c73eaad1f9b7a0bee4054362d74e7` | NEW |
-| `scripts/acceptance.py` | `-` | `-` | `-` | `5f15ddbb4912019d393c2b97c3f076e58724b49dc4077851a3867632e6ac232b` | NEW |
+| `scripts/acceptance.py` | `-` | `-` | `-` | `0135623d3b93b05ff41e024d6006bf8f77e0d930e209be776a3d1b24eef17086` | NEW |
 | `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `346d8159621e904f75c2156a1123fec232d3f1d7775ad27d82086bb5d558d5bc` | PORT |
 | `scripts/run_ea_tick.ps1` | `PIPER:scripts/run_cadence_tick.ps1` | `untracked` | `d7233a6d93db66768bebbb3ca61591de41356a88a56a0ad92ddbd621d6ddccb2` | `5ec03f6aa2b6196c05ab6c4abaee5125de8c167fd1e17bc3f0457b16bad787fa` | PORT |
 | `scripts/schedule_ea_tick.ps1` | `PIPER:scripts/schedule_cadence_tick.ps1` | `untracked` | `6189ca47717bb64d4bb7521b69f166330ddac8939e4a05dd57936f9d2e88ca7e` | `1124899fae5c81fbee7ed096a2a5b4d2de64096a42b947a665dae37e4f47fb79` | PORT |
@@ -118,7 +118,8 @@ Vendored 2026-10-01.
 | `tests/fixtures/kaed_fixture_document.json` | `-` | `-` | `-` | `23699f79c4dd951d76cf44b9872f4d3faa2b0eb45b151b4e4d9fe941342f642b` | NEW |
 | `tests/fixtures/kaed_section_map.json` | `-` | `-` | `-` | `74b916c5d60e1705d12313182af5df84d2921196dd17d6019865b0fb4782a110` | NEW |
 | `.claude/hooks/_activity.py` | `-` | `-` | `-` | `597f775c8500fd6a2cc47a28dcd706390f4c6f59549b7b29c37869d54b4b9940` | NEW |
-| `tests/test_acceptance_preflight.py` | `-` | `-` | `-` | `56b2171e89384916b0e64639035297594a509ca25188ed0fecddff97c3b55ace` | NEW |
+| `tests/test_acceptance_preflight.py` | `-` | `-` | `-` | `0b3e3976b433f02deaa37c2673fb4a349380688261182705b7e79e1674deff11` | NEW |
+| `tests/test_acceptance_p16.py` | `-` | `-` | `-` | `fdb731ea4aa6be00c14ee38011a245958bb700e04d92176e4f3e6cc5764317d9` | NEW |
 <!-- end of manifest table -->
 
 ## What changed, and why

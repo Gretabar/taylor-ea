@@ -31,10 +31,12 @@ built. If anything is left over, it refuses with exit 2 before running a leg and
 writes no report. It never rebuilds on its own: deleting and recreating Docs in
 Mike's Drive stays an explicit flag.
 
-BLOCKED IS NOT FAILED. A leg that could not be exercised is Blocked. P1.6 and G4
-stand on fixture preconditions the system under test does not own, so a harness
-exception there is reported Blocked; a script that exits non-zero or breaks its
-output contract is a SystemFailure and is still FAILED.
+BLOCKED IS NOT FAILED. Blueprint s.12: "use Failed or Blocked when it does not work
+or cannot be exercised". A crash of the harness itself is "cannot be exercised", so in
+every leg it is reported Blocked. A script under test that misbehaves is FAILED: it
+exits non-zero, prints no JSON, breaks its output contract, or loses a record it
+reported writing. Each of those raises SystemFailure at the point the harness reads
+the script's output, so it can never be mistaken for a harness crash.
 
 Usage:
     python scripts/acceptance.py --fixtures [--rebuild] [--date 2026-10-01]
@@ -62,8 +64,9 @@ import subprocess  # noqa: E402
 import sys  # noqa: E402
 import tempfile  # noqa: E402
 from collections import Counter  # noqa: E402
-from datetime import date, datetime, timezone  # noqa: E402
+from datetime import date, datetime, timedelta, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
+from zoneinfo import ZoneInfo  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -155,6 +158,14 @@ def rows(sql: str, *params) -> list[dict]:
         conn.close()
 
 
+def system_row(what: str, sql: str, *params) -> dict:
+    """The record a script under test reported writing. Its absence is the system's failure."""
+    found = rows(sql, *params)
+    if not found:
+        raise SystemFailure(f"no {what} in the register after the script reported writing it")
+    return found[0]
+
+
 def doc_of(title_like: str) -> dict:
     found = rows("SELECT * FROM docs WHERE fixture = 1 AND title LIKE ?", f"%{title_like}%")
     if len(found) != 1:
@@ -172,8 +183,14 @@ def propose_and_apply(kind: str, ref: str, ev: Evidence, *extra: str, apply_extr
     ev.cmd(f"docs_propose.py {kind} --ref {ref} {' '.join(extra)}".strip(), prop)
     if prop.code != 0:
         return prop, Run(-1, "", "not applied: proposal refused"), ""
-    path = next(ln.split(None, 1)[1] for ln in prop.out.splitlines() if ln.startswith("proposal:"))
-    doc_id = next(ln.split("--doc ")[1].split()[0] for ln in prop.out.splitlines() if "--doc " in ln)
+    path = doc_id = None
+    for line in prop.out.splitlines():
+        if path is None and line.startswith("proposal:") and len(line.split(None, 1)) == 2:
+            path = line.split(None, 1)[1].strip()
+        if doc_id is None and "--doc " in line and line.split("--doc ", 1)[1].split():
+            doc_id = line.split("--doc ", 1)[1].split()[0]
+    if not path or not doc_id:
+        raise SystemFailure(f"docs_propose.py {kind} --ref {ref} exited 0 without its proposal: and --doc lines")
     applied = sh("scripts/docs_edit.py", kind, "--doc", doc_id, "--proposal", path, *apply_extra)
     ev.cmd(f"docs_edit.py {kind} --doc {doc_id[:12]}... --proposal {Path(path).name} {' '.join(apply_extra)}".strip(),
            applied)
@@ -345,47 +362,52 @@ def p11(ev: Evidence) -> dict:
                "--side", "taylor", "--origin-ref", "/add add manager accountability to Kaed's next 1:1",
                "--instruction-date", INSTRUCTION_DATE)
     ev.cmd("register.py add-topic --person kaed --text \"Manager accountability\"", topic)
-    ref = topic.json()["ref"]
+    ref = system_json(topic, "register.py add-topic", "ref")["ref"]
     _, applied, _ = propose_and_apply("add-topic", ref, ev)
     parsed = read(doc)
     section = parsed["sections"]["taylor_topics"]
     texts = [parsed["tabs"][parsed["target_tab"]]["items"][i]["text"] for i in section["items"]]
-    topic_rows = rows("SELECT ref, status, placed_revision_id FROM topics WHERE ref = ?", ref)
+    topic_row = system_row("topic row", "SELECT ref, status, placed_revision_id FROM topics WHERE ref = ?", ref)
     actions_after, meetings_after = scalar("SELECT COUNT(*) FROM actions"), scalar("SELECT COUNT(*) FROM meetings")
     calendar_free = [p.name for p in (HERE / "register.py", HERE / "docs_propose.py", HERE / "docs_edit.py")
                      if not imports_calendar(p)]
-    ev.add(f"- topic row: `{topic_rows}`")
+    ev.add(f"- topic row: `{topic_row}`")
     ev.add(f"- Kaed's newest block, taylor_topics ('Top Focuses') as re-read from Google: `{texts}`")
     ev.add(f"- actions before/after: {actions_before}/{actions_after}; meetings before/after: {meetings_before}/{meetings_after}")
     ev.add(f"- Calendar: none of {', '.join(calendar_free)} imports calendar_next or asks for calendar.readonly, "
            f"and this token has no calendar scope, so a Calendar call would have failed the step")
-    ok = (applied.code == 0 and texts.count("Manager accountability") == 1 and topic_rows[0]["status"] == "placed"
+    ok = (applied.code == 0 and texts.count("Manager accountability") == 1 and topic_row["status"] == "placed"
           and actions_after == actions_before and meetings_after == meetings_before and len(calendar_free) == 3)
-    return {"ok": ok, "summary": f"1 topic {ref} placed in Kaed's taylor_topics (rev {topic_rows[0]['placed_revision_id'][:12]}...), "
+    return {"ok": ok, "summary": f"1 topic {ref} placed in Kaed's taylor_topics (rev {(topic_row['placed_revision_id'] or '-')[:12]}...), "
                                  f"0 actions, 0 meetings created, 0 Calendar calls"}
 
 
 def p12(ev: Evidence) -> dict:
-    due = register.resolve_date("Friday", date.fromisoformat(INSTRUCTION_DATE))
+    try:
+        due = register.resolve_date("Friday", date.fromisoformat(INSTRUCTION_DATE))
+    except Exception as exc:  # noqa: BLE001
+        # Not swallowed: the date resolver is under test here, so its crash is the system's failure.
+        raise SystemFailure(f"register.resolve_date raised {exc.__class__.__name__}: {exc}") from exc
     ev.add(f"- resolve-date Friday from {INSTRUCTION_DATE} (a Thursday): `{due['status']} {due['date']}`")
     action = sh("scripts/register.py", "add-action", "--text", "Send Casey the manager bonus structure",
                 "--owner", "taylor", "--due", str(due["date"]), "--due-note", "Friday", "--counterpart", "casey",
                 "--origin-ref", "/add I told Casey I'll send the bonus structure Friday; add it to our next 1:1",
                 "--instruction-date", INSTRUCTION_DATE)
     ev.cmd("register.py add-action --owner taylor --due <resolved Friday> --counterpart casey", action)
-    a_ref = action.json()["ref"]
+    a_ref = system_json(action, "register.py add-action", "ref")["ref"]
     topic = sh("scripts/register.py", "add-topic", "--person", "casey", "--text", "Manager bonus structure",
                "--instruction-date", INSTRUCTION_DATE)
     ev.cmd("register.py add-topic --person casey --text \"Manager bonus structure\"", topic)
-    t_ref = topic.json()["ref"]
+    t_ref = system_json(topic, "register.py add-topic", "ref")["ref"]
     _, a_applied, _ = propose_and_apply("add-action", a_ref, ev)
     _, t_applied, _ = propose_and_apply("add-topic", t_ref, ev)
     doc = doc_of("Casey x Taylor")
     parsed = read(doc)
     found = docs_read.locate(parsed, item_kind="action", item_ref=a_ref, named_range=f"ea:action:{a_ref}",
                              stored_hash=None, columns=None)
-    row = rows("SELECT a.ref, p.key AS owner, a.due_date, a.project_ref, a.status FROM actions a"
-               " JOIN people p ON p.id = a.owner_person_id WHERE a.ref = ?", a_ref)[0]
+    row = system_row("action row with a resolved owner",
+                     "SELECT a.ref, p.key AS owner, a.due_date, a.project_ref, a.status FROM actions a"
+                     " JOIN people p ON p.id = a.owner_person_id WHERE a.ref = ?", a_ref)
     tab = parsed["tabs"][parsed["target_tab"]]
     topics_in_doc = [tab["items"][i]["text"] for i in parsed["sections"]["taylor_topics"]["items"]]
     ev.add(f"- action row: `{row}`")
@@ -406,8 +428,9 @@ def p13(ev: Evidence) -> dict:
                 "--origin-ref", "/add Someone should follow up; we haven't chosen a date",
                 "--instruction-date", INSTRUCTION_DATE)
     ev.cmd("register.py add-action --owner unresolved --due unresolved", action)
-    ref = action.json()["ref"]
-    row = rows("SELECT ref, owner_person_id, owner_unresolved, due_date, due_unresolved FROM actions WHERE ref = ?", ref)[0]
+    ref = system_json(action, "register.py add-action", "ref")["ref"]
+    row = system_row("action row", "SELECT ref, owner_person_id, owner_unresolved, due_date, due_unresolved"
+                     " FROM actions WHERE ref = ?", ref)
     questions = rows("SELECT n.ref, n.question FROM needs_input n JOIN actions a ON a.id = n.action_id"
                      " WHERE a.ref = ? AND n.status = 'open'", ref)
     friday = sh("scripts/register.py", "resolve-date", "Friday", "--from", "2026-10-02")
@@ -427,11 +450,12 @@ def p14(ev: Evidence, a_ref: str) -> dict:
            f"`{revision[:24]}...`")
     tick1 = sh("scripts/ea_tick.py", "--fixtures")
     ev.cmd("ea_tick.py --fixtures", tick1)
-    action = rows("SELECT ref, status, completed_via, completed_at FROM actions WHERE ref = ?", a_ref)[0]
+    action = system_row("action row", "SELECT ref, status, completed_via, completed_at FROM actions WHERE ref = ?", a_ref)
     events = rows("SELECT e.actor, e.field, e.old_value, e.new_value, e.source FROM action_events e"
                   " JOIN actions a ON a.id = e.action_id WHERE a.ref = ? AND e.field = 'status'", a_ref)
     owed = sh("scripts/register.py", "--json", "owed")
-    still_owed = [i["ref"] for items in owed.json()["by_person"].values() for i in items]
+    owed_by_person = system_json(owed, "register.py --json owed", "by_person")["by_person"]
+    still_owed = [i["ref"] for items in owed_by_person.values() for i in items]
     tick2 = sh("scripts/ea_tick.py", "--fixtures")
     ev.cmd("ea_tick.py --fixtures  (second tick, same revision)", tick2)
     forced = sh("scripts/docs_reconcile.py", "--doc", doc["doc_id"], "--force")
@@ -448,14 +472,16 @@ def p14(ev: Evidence, a_ref: str) -> dict:
     chk = doc_of("Checkbox experiment")
     act = sh("scripts/register.py", "add-action", "--text", "Order the replacement till drawer", "--owner", "taylor",
              "--due", "2026-10-08", "--counterpart", "kaed", "--instruction-date", INSTRUCTION_DATE)
-    c_ref = act.json()["ref"]
+    c_ref = system_json(act, "register.py add-action", "ref")["ref"]
     _, c_applied, _ = propose_and_apply("add-action", c_ref, ev, "--doc", chk["doc_id"])
+    if c_applied.code != 0:
+        raise SystemFailure(f"docs_edit.py did not place {c_ref} on the checklist (exit {c_applied.code})")
     strike_rev = manager_strikes(chk, c_ref)
     ev.add(f"- harness: struck through the {c_ref} checklist line (the believed rendering of a ticked box; the API "
            f"cannot set a checkbox); revision `{strike_rev[:24]}...`")
     tick3 = sh("scripts/ea_tick.py", "--fixtures")
     ev.cmd("ea_tick.py --fixtures  (checkbox form)", tick3)
-    c_action = rows("SELECT ref, status, completed_via FROM actions WHERE ref = ?", c_ref)[0]
+    c_action = system_row("action row", "SELECT ref, status, completed_via FROM actions WHERE ref = ?", c_ref)
     ev.add(f"- checklist action after the tick: `{c_action}`")
     ok = (action["status"] == "done" and action["completed_via"] == "doc" and len(events) == 1
           and a_ref not in still_owed and "unchanged" in tick2.out and completions == 1 and status_events == 1
@@ -468,7 +494,7 @@ def p14(ev: Evidence, a_ref: str) -> dict:
 def p15(ev: Evidence) -> dict:
     action = sh("scripts/register.py", "add-action", "--text", "Bring the closing process draft", "--owner", "taylor",
                 "--due", "2026-10-06", "--counterpart", "kaed", "--instruction-date", INSTRUCTION_DATE)
-    ref = action.json()["ref"]
+    ref = system_json(action, "register.py add-action", "ref")["ref"]
     _, placed, _ = propose_and_apply("add-action", ref, ev)
     doc = doc_of("Kaed x Taylor")
     before = docs_read.lines_of(read(doc))
@@ -496,7 +522,40 @@ def p15(ev: Evidence) -> dict:
                                  f"Kaed with 2026-10-13, Doc diff limited to that action's row"}
 
 
+FIXTURE_CALENDAR = ROOT / "state" / "records" / "fixture-calendar"
+
+# P1.6 is defined on Mark's biweekly 1:1, so two weeks is the test's own expectation.
+# It is never read from the register (that is the answer under test) nor from the
+# seed's cadence (a series seeded or read as weekly must fail, not move the goalposts).
+P16_EVERY = timedelta(days=14)
+
+
+def fixture_seed(key: str) -> dict:
+    """The seed parameters make_fixtures.py recorded for one fixture series."""
+    path = FIXTURE_CALENDAR / f"{key}.json"
+    try:
+        return json.loads(path.read_bytes().decode("utf-8"))["seed"]
+    except (OSError, ValueError, KeyError) as exc:
+        raise RuntimeError(f"no seed parameters in {path.name} ({exc.__class__.__name__}); rebuild the fixtures") from exc
+
+
+def expected_next_date(seed: dict) -> date:
+    """The next 1:1 a seed implies: its last instance plus two weeks, as a date in the seed's zone."""
+    last = datetime.fromisoformat(seed["last_start"]).astimezone(ZoneInfo(seed["timezone"]))
+    return (last + P16_EVERY).date()
+
+
+def local_date(stamp, tz_name: str) -> date | None:
+    """A next_at the system reported, as a date in the seed's zone. None when it gave none."""
+    try:
+        return datetime.fromisoformat(str(stamp)).astimezone(ZoneInfo(tz_name)).date() if stamp else None
+    except ValueError:
+        return None
+
+
 def p16(ev: Evidence) -> dict:
+    seed = fixture_seed("mark")
+    expected = expected_next_date(seed)
     meetings_before = scalar("SELECT COUNT(*) FROM meetings")
     meeting = rows("SELECT m.id, m.cadence_observed, m.next_at FROM meetings m JOIN people p ON p.id = m.person_id"
                    " WHERE p.key = 'mark'")[0]
@@ -514,14 +573,18 @@ def p16(ev: Evidence) -> dict:
     tab = parsed["tabs"][parsed["target_tab"]]
     texts = [tab["items"][i]["text"] for i in parsed["sections"]["taylor_topics"]["items"]]
     meetings_after = scalar("SELECT COUNT(*) FROM meetings")
-    ev.add(f"- Mark's meeting: `{meeting}` (from a synthetic events.instances series: last 2026-09-30, every 14 days)")
-    ev.add(f"- topic register row: meeting_id {result['meeting_id']}, next_at {result['next_at']}")
+    observed = local_date(result["next_at"], seed["timezone"])
+    ev.add(f"- Mark's meeting: `{meeting}` (from a synthetic events.instances series seeded "
+           f"{local_date(seed['built_at'], seed['timezone'])}: "
+           f"last instance {seed['last_start']}; expected next 1:1 {expected}, two weeks on, in {seed['timezone']})")
+    ev.add(f"- topic register row: meeting_id {result['meeting_id']}, next_at {result['next_at']} (local date {observed})")
     ev.add(f"- Mark's Doc taylor_topics as re-read: `{texts}`; meetings before/after: {meetings_before}/{meetings_after}")
     ok = (applied.code == 0 and meeting["cadence_observed"] == "biweekly" and result["meeting_id"] == meeting["id"]
-          and str(result["next_at"]).startswith("2026-10-14") and "Patio season close-out plan" in texts
+          and observed == expected and "Patio season close-out plan" in texts
           and meetings_after == meetings_before)
-    return {"ok": ok, "summary": "topic placed in Mark's own Doc against his biweekly series, next_at 2026-10-14 "
-                                 "(two weeks out), no meeting invented; Calendar input was a fixture series"}
+    return {"ok": ok, "summary": f"topic placed in Mark's own Doc against his biweekly series, next_at {expected} "
+                                 f"(two weeks after the seeded {seed['last_start'][:10]}), no meeting invented; "
+                                 "Calendar input was a fixture series"}
 
 
 def run_hook(name: str, payload: dict, env: dict | None = None) -> Run:
@@ -639,7 +702,7 @@ def g4(ev: Evidence) -> dict:
         conn.execute("UPDATE docs SET role = 'g4_deleted' WHERE doc_id = ?", (sacrificial["doc_id"],))
     deleted = sh("scripts/docs_edit.py", "add-topic", "--doc", sacrificial["doc_id"], "--proposal", path)
     ev.cmd("docs_edit.py add-topic --doc <deleted fixture>", deleted)
-    t_row = rows("SELECT ref, status, last_error FROM topics WHERE ref = ?", t_ref)[0]
+    t_row = system_row("topic row", "SELECT ref, status, last_error FROM topics WHERE ref = ?", t_ref)
 
     kaed = doc_of("Kaed x Taylor")
     revision_before = read(kaed)["revision_id"]
@@ -648,7 +711,7 @@ def g4(ev: Evidence) -> dict:
                               "register.py add-topic", "ref")["ref"]
     _, stale, _ = propose_and_apply("add-topic", stale_topic, ev, apply_extra=("--simulate-stale-revision",))
     revision_after = read(kaed)["revision_id"]
-    s_row = rows("SELECT ref, status FROM topics WHERE ref = ?", stale_topic)[0]
+    s_row = system_row("topic row", "SELECT ref, status FROM topics WHERE ref = ?", stale_topic)
     audit = rows("SELECT ts, decision, rule_id, target, substr(detail, 1, 110) AS detail FROM audit"
                  " WHERE hook = 'docs_edit' AND decision IN ('fail','refused') ORDER BY id DESC LIMIT 2")
     ev.add(f"- topic after the deleted-Doc write: `{t_row}`")
@@ -691,27 +754,21 @@ def checkbox_experiment(ev: Evidence) -> str:
 # report
 # ---------------------------------------------------------------------------
 
-# A harness crash in these legs is Blocked, not FAILED. Each stands on a fixture
-# precondition the system under test does not own (P1.6 a seeded Calendar series, G4
-# a sacrificial Doc that a previous G4 deleted), so an exception there says the test
-# could not be exercised. A SystemFailure is FAILED in every leg.
-BLOCK_ON_HARNESS_ERROR = frozenset({"P1.6", "G4"})
+def run_leg(fn) -> tuple[Evidence, dict]:
+    """Run one leg. Never Passed without the leg's own observed evidence.
 
-
-def run_leg(name: str, fn) -> tuple[Evidence, dict]:
-    """Run one leg. Never Passed without the leg's own observed evidence."""
+    A SystemFailure is FAILED. Any other exception is the harness failing to exercise
+    the test, which is Blocked in every leg (blueprint s.12).
+    """
     ev = Evidence()
     try:
         result = fn(ev)
     except SystemFailure as exc:
         return ev, {"ok": False, "summary": f"system failure: {exc}"}
     except Exception as exc:  # noqa: BLE001
-        # swallow: recorded as FAILED or Blocked with the exception, never as Passed.
-        # One broken test must not hide the evidence of the others.
-        result = {"ok": False, "summary": f"harness error {exc.__class__.__name__}: {exc}"}
-        if name in BLOCK_ON_HARNESS_ERROR:
-            result["blocked"] = True
-        return ev, result
+        # swallow: recorded as Blocked with the exception, never as Passed. One leg
+        # the harness could not exercise must not hide the evidence of the others.
+        return ev, {"ok": False, "blocked": True, "summary": f"harness error {exc.__class__.__name__}: {exc}"}
     if not result["ok"]:
         # A leg's summary describes the outcome it checks for. On a failure that is what
         # was expected, not what happened, and it must not read like a pass.
@@ -769,11 +826,11 @@ def main() -> int:
     tests = [("P1.1", p11), ("P1.2", p12), ("P1.3", p13)]
     results: dict[str, dict] = {}
     for name, fn in tests:
-        ev, results[name] = run_leg(name, fn)
+        ev, results[name] = run_leg(fn)
         sections.append((name, ev, results[name]))
     for name, fn in (("P1.4", lambda ev: p14(ev, results["P1.2"].get("a_ref", "A-0001"))), ("P1.5", p15),
                      ("P1.6", p16), ("G1", g1), ("G4", g4), ("G5", g5)):
-        ev, results[name] = run_leg(name, fn)
+        ev, results[name] = run_leg(fn)
         sections.append((name, ev, results[name]))
     probe_ev = Evidence()
     probe = checkbox_experiment(probe_ev)
