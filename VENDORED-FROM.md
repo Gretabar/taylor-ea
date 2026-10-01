@@ -115,8 +115,8 @@ Vendored 2026-10-01.
 | `context/architecture/deviations.json` | `-` | `-` | `-` | `1e9b0a1e6ca83c9e66edc82b7e6a3fed1538eca7a285d85d2c3620ebd803cb76` | NEW |
 | `.gitattributes` | `-` | `-` | `-` | `efc2b1dbd43d2b07680511836c9869bd99e450910cda0a4fe257954271f1c246` | NEW |
 | `tests/__init__.py` | `-` | `-` | `-` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | NEW |
-| `tests/fixtures/kaed_fixture_document.json` | `-` | `-` | `-` | `23699f79c4dd951d76cf44b9872f4d3faa2b0eb45b151b4e4d9fe941342f642b` | NEW |
-| `tests/fixtures/kaed_section_map.json` | `-` | `-` | `-` | `74b916c5d60e1705d12313182af5df84d2921196dd17d6019865b0fb4782a110` | NEW |
+| `tests/fixtures/kaed_fixture_document.json` | `-` | `-` | `-` | `fda4a23a8e9d271dcf80684e2733c7d172f9609b66d1da558ada8f06a0af593b` | NEW |
+| `tests/fixtures/kaed_section_map.json` | `-` | `-` | `-` | `f305c27b4e0bf26b947ec6b2864e7c4aa79b71de1e5016560e9cc85ebe1c0be4` | NEW |
 | `.claude/hooks/_activity.py` | `-` | `-` | `-` | `597f775c8500fd6a2cc47a28dcd706390f4c6f59549b7b29c37869d54b4b9940` | NEW |
 | `tests/test_acceptance_preflight.py` | `-` | `-` | `-` | `0b3e3976b433f02deaa37c2673fb4a349380688261182705b7e79e1674deff11` | NEW |
 | `tests/test_acceptance_p16.py` | `-` | `-` | `-` | `fdb731ea4aa6be00c14ee38011a245958bb700e04d92176e4f3e6cc5764317d9` | NEW |
