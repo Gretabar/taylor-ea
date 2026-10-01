@@ -104,22 +104,43 @@ def docs_service():
     return google_creds.service("docs", "v1", [google_creds.DOCUMENTS])
 
 
+RETRYABLE = (429, 500, 502, 503, 504)
+READ_ATTEMPTS = 4
+
+
 def fetch(service, doc_id: str) -> dict:
-    """documents.get with every tab's content. Raises DocReadError with the HTTP status."""
+    """documents.get with every tab's content. Raises DocReadError with the HTTP status.
+
+    A read is always safe to repeat, so a transient 429 or 5xx is retried with
+    backoff (a 500 was observed on 2026-10-01 in the middle of an acceptance run).
+    Anything else, and the last transient failure, is raised: a read that did not
+    happen is never returned as an empty Doc.
+    """
+    import time  # noqa: PLC0415
+
     from googleapiclient.errors import HttpError  # noqa: PLC0415
 
-    try:
-        return service.documents().get(documentId=doc_id, includeTabsContent=True).execute()
-    except HttpError as exc:
-        status = int(getattr(exc.resp, "status", 0) or 0)
-        meaning = {404: "not found (deleted, or the id is wrong)",
-                   403: "forbidden (this account cannot open it)"}.get(status, "refused")
-        raise DocReadError(f"documents.get {doc_id}: HTTP {status}, {meaning}", status) from exc
-    except Exception as exc:  # noqa: BLE001
-        # Not swallowed: re-raised as the typed error every caller handles. The Google
-        # client's transport raises httplib2 errors that are not OSError, and a read
-        # that fails for a network reason must still reach the caller as "could not read".
-        raise DocReadError(f"documents.get {doc_id}: {exc.__class__.__name__}: {exc}") from exc
+    for attempt in range(READ_ATTEMPTS):
+        try:
+            return service.documents().get(documentId=doc_id, includeTabsContent=True).execute()
+        except HttpError as exc:
+            status = int(getattr(exc.resp, "status", 0) or 0)
+            if status in RETRYABLE and attempt < READ_ATTEMPTS - 1:
+                time.sleep(1.5 * 2 ** attempt)
+                continue
+            meaning = {404: "not found (deleted, or the id is wrong)",
+                       403: "forbidden (this account cannot open it)"}.get(status, "refused")
+            raise DocReadError(f"documents.get {doc_id}: HTTP {status}, {meaning}", status) from exc
+        except Exception as exc:  # noqa: BLE001
+            # Not swallowed: retried, then re-raised as the typed error every caller
+            # handles. The Google client's transport raises httplib2 errors that are not
+            # OSError, and a read that fails for a network reason must still reach the
+            # caller as "could not read", never as a crash or an empty Doc.
+            if attempt < READ_ATTEMPTS - 1:
+                time.sleep(1.5 * 2 ** attempt)
+                continue
+            raise DocReadError(f"documents.get {doc_id}: {exc.__class__.__name__}: {exc}") from exc
+    raise DocReadError(f"documents.get {doc_id}: no attempt completed")
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +217,11 @@ def _table(block: dict, lists: dict) -> dict:
                 "start": cell.get("startIndex", 0), "end": cell.get("endIndex", 0),
                 "text": "\n".join(p["text"] for p in paras).strip(),
                 "chips": [chip for p in paras for chip in p["chips"]],
-                "struck": bool(paras) and all(p["struck"] for p in paras if p["text"].strip()),
+                # Only paragraphs with visible text vote. all() over an empty sequence is
+                # True, so without the bool() guard an EMPTY cell read as struck through
+                # and an action could auto-complete from the absence of content.
+                "struck": bool(visible := [p for p in paras if p["text"].replace(CHIP_PLACEHOLDER, "").strip()])
+                          and all(p["struck"] for p in visible),
                 "paragraphs": paras,
             })
         rows.append({"start": row.get("startIndex", 0), "end": row.get("endIndex", 0), "cells": cells})
@@ -435,7 +460,7 @@ def locate(parsed: dict, *, item_kind: str, item_ref: str, named_range: str | No
         status_cell = cells[cols["status"]] if cols["status"] < len(cells) else {"text": "", "chips": []}
         title_cell = cells[cols["title"]] if cols["title"] < len(cells) else {"text": "", "struck": False}
         state = classify_status(status_cell["text"], status_cell.get("chips"))
-        if state == "open" and title_cell.get("struck"):
+        if state == "open" and title_cell.get("struck") and title_cell.get("text", "").strip():
             state = "checked"
         date_cell = cells[cols["date"]] if cols["date"] < len(cells) else {"chips": []}
         dates = [c for c in date_cell.get("chips") or [] if c.get("type") == "date"]

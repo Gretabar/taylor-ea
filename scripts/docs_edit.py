@@ -170,7 +170,7 @@ def check_proposal(conn, path: Path, kind: str, doc_arg: str | None) -> dict:
     if index["status"] not in ("pending", "failed"):
         raise Refused(f"{rel} is {index['status']}; a proposal is delivered once")
     for text in (proposal.get("text"), proposal.get("status_text"),
-                 *((proposal.get("cells") or {}).get(k) for k in ("assignee", "title", "date_text"))):
+                 *((proposal.get("cells") or {}).get(k) for k in ("assignee", "title", "date_text", "status"))):
         findings = validate_content_rules.check_doc_bound(text or "")
         if findings:
             raise Refused("Doc-bound text breaks a content rule: " + ", ".join(f.rule for f in findings))
@@ -237,8 +237,18 @@ def plan_line(parsed: dict, section_key: str, text: str, named_range: str) -> li
     return requests
 
 
-def _columns(parsed: dict, section_key: str) -> dict:
-    return {"assignee": 0, "title": 1, "date": 2, "status": 3, **(parsed["sections"][section_key].get("columns") or {})}
+def _columns(parsed: dict, section_key: str, width: int | None = None) -> dict:
+    """The four logical columns, refused unless they are four distinct columns of the table.
+
+    Two logical columns mapped to one index would silently drop a value from the
+    row and still verify (silent-failure review, 2026-10-01).
+    """
+    cols = {"assignee": 0, "title": 1, "date": 2, "status": 3, **(parsed["sections"][section_key].get("columns") or {})}
+    indices = [cols[k] for k in ("assignee", "title", "date", "status")]
+    if len(set(indices)) != 4 or min(indices) < 0 or (width is not None and max(indices) >= width):
+        raise Refused(f"the section map's columns {cols} are not four distinct columns of this "
+                      f"{width if width is not None else '?'}-column table")
+    return cols
 
 
 def _action_table(parsed: dict, section_key: str) -> dict:
@@ -258,6 +268,7 @@ def plan_row_insert(parsed: dict, section_key: str) -> tuple[list[dict], int]:
     """
     tab_id = parsed["tabs"][parsed["target_tab"]]["tab_id"]
     table = _action_table(parsed, section_key)
+    _columns(parsed, section_key, table["columns"])  # refuse a bad map BEFORE a row exists
     last = len(table["rows"]) - 1
     return [{"insertTableRow": {"tableCellLocation": {
         "tableStartLocation": {"index": table["start"], "tabId": tab_id},
@@ -283,7 +294,7 @@ def plan_row_fill(parsed: dict, section_key: str, row: dict, cells: dict, named_
     paragraph start plus the net change in the cells to its left.
     """
     tab_id = parsed["tabs"][parsed["target_tab"]]["tab_id"]
-    cols = _columns(parsed, section_key)
+    cols = _columns(parsed, section_key, len(row["cells"]))
     values: dict[int, tuple[str, str]] = {k: ("text", "") for k in range(len(row["cells"]))}
     values[cols["assignee"]] = ("text", cells.get("assignee") or "")
     values[cols["title"]] = ("text", cells["title"])
@@ -330,14 +341,27 @@ def _replace_cell(cell: dict, tab_id: str, insert: dict) -> list[dict]:
     return requests + [insert]
 
 
+def done_suffix(status_text: str) -> str:
+    """What mark-done appends to a checklist line: ' (done 2026-10-01)'."""
+    return " (" + status_text[0].lower() + status_text[1:] + ")"
+
+
 def plan_mark_done(parsed: dict, located: dict, section_key: str, status_text: str) -> list[dict]:
     tab_id = parsed["tabs"][parsed["target_tab"]]["tab_id"]
     if located["shape"] == "row":
-        cell = _find_row(parsed, located)["cells"][_columns(parsed, section_key)["status"]]
+        row = _find_row(parsed, located)
+        cell = row["cells"][_columns(parsed, section_key, len(row["cells"]))["status"]]
+        if cell["text"].strip() == status_text:
+            raise NoChange(f"the Status cell already reads {status_text!r}; nothing written")
         start = cell["paragraphs"][0]["start"]
         return _replace_cell(cell, tab_id, {"insertText": {"location": {"index": start, "tabId": tab_id},
                                                            "text": status_text}})
-    suffix = " (" + status_text[0].lower() + status_text[1:] + ")"
+    suffix = done_suffix(status_text)
+    if suffix.strip() in located["text"]:
+        # Idempotent by the exact marker, not by the derived state: a line whose own
+        # words carry a hedge ("Not the final draft") reads ambiguous even after the
+        # marker lands, and a state check would append it again on every retry.
+        raise NoChange(f"the line already carries {suffix.strip()!r}; nothing written")
     return [{"insertText": {"location": {"index": located["para_end"] - 1, "tabId": tab_id}, "text": suffix}}]
 
 
@@ -345,7 +369,8 @@ def plan_update_due(parsed: dict, located: dict, section_key: str, due: str, tz_
     if located["shape"] != "row":
         raise Refused("update-due is supported for the action table only; this item is a checklist line")
     tab_id = parsed["tabs"][parsed["target_tab"]]["tab_id"]
-    cell = _find_row(parsed, located)["cells"][_columns(parsed, section_key)["date"]]
+    row = _find_row(parsed, located)
+    cell = row["cells"][_columns(parsed, section_key, len(row["cells"]))["date"]]
     start = cell["paragraphs"][0]["start"]
     return _replace_cell(cell, tab_id, {"insertDate": {"location": {"index": start, "tabId": tab_id},
                                                        "dateElementProperties": date_chip(due, tz_name)}})
@@ -395,11 +420,20 @@ def verify(parsed: dict, proposal: dict, tz_name: str) -> dict:
             raise Unverified(f"the Date cell reads {located['date_text']!r}, expected {cells['date_text']!r}")
         if any(c.get("type") == "unknown" for c in located.get("date_cell_chips") or []):
             raise Unverified("a chip placeholder copied by insertTableRow is still in the Date cell")
-        if located["state"] != "open":
-            raise Unverified(f"the new row reads as {located['state']}, expected open")
+        row = next((r for r in rows if r["start"] == located["row_start"]), None)
+        cols = _columns(parsed, proposal["section"])
+        for name in ("assignee", "status"):
+            got = row["cells"][cols[name]]["text"].replace(docs_read.CHIP_PLACEHOLDER, "").strip() if row else None
+            if got != (cells.get(name) or ""):
+                raise Unverified(f"the {name.title()} cell reads {got!r}, expected {cells.get(name) or ''!r}")
     elif kind == "mark-done":
-        if located["state"] != "checked":
-            raise Unverified(f"after the write the item reads as {located['state']}, not done")
+        # The exact words THIS write put there, not a derived "done": a manager's own
+        # Done typed during a lost-response window must not pass as proof of ours.
+        if located["shape"] == "row" and located["status_text"].strip() != proposal["status_text"]:
+            raise Unverified(f"the Status cell reads {located['status_text']!r}, expected "
+                             f"{proposal['status_text']!r}")
+        if located["shape"] == "paragraph" and done_suffix(proposal["status_text"]).strip() not in located["text"]:
+            raise Unverified(f"the line does not carry {done_suffix(proposal['status_text']).strip()!r}")
     elif kind == "update-due":
         if _chip_date(located.get("date_chip"), tz_name) != proposal["date"]:
             raise Unverified(f"the Date cell does not hold a {proposal['date']} date chip")
@@ -473,6 +507,36 @@ def _fresh(service, proposal: dict, smap: dict, stage: str) -> tuple[dict, str]:
     return docs_read.parse(document, smap), revision
 
 
+def remove_blank_row(service, proposal: dict, smap: dict) -> str:
+    """Undo phase A: remove the row it inserted IF it is still blank.
+
+    Returns "removed", "absent" (the row or table is gone) or "not blank" (content
+    this write cannot vouch for; it is left alone). A removal Google refuses is
+    raised as Unverified naming the row, so it can be deleted by hand. Reverting
+    this call's own empty row is not deleting anybody's line.
+    """
+    index = proposal["_new_row"]
+    parsed, revision = _fresh(service, proposal, smap, "cleanup")
+    if proposal["section"] in parsed["unmapped"]:
+        return "absent"
+    table = _action_table(parsed, proposal["section"])
+    if len(table["rows"]) <= index:
+        return "absent"
+    if not row_is_blank(table["rows"][index]):
+        return "not blank"
+    tab_id = parsed["tabs"][parsed["target_tab"]]["tab_id"]
+    try:
+        _batch(service, proposal["doc_id"], [{"deleteTableRow": {"tableCellLocation": {
+            "tableStartLocation": {"index": table["start"], "tabId": tab_id},
+            "rowIndex": index, "columnIndex": 0}}}], revision)
+    except Exception as exc:  # noqa: BLE001
+        # Not swallowed: escalated as Unverified with the exact place to fix by hand.
+        raise Unverified(f"the empty row this write inserted (row {index} of the action table in "
+                         f"{proposal.get('doc_title')!r}) could not be removed ({exc.__class__.__name__}); "
+                         f"delete that empty row by hand") from exc
+    return "removed"
+
+
 def fill_new_row(service, proposal: dict, smap: dict, tz_name: str, notes: list[str]) -> None:
     """Phase B. Fill the row phase A inserted, or remove it again. Never leaves it silently."""
     from googleapiclient.errors import HttpError  # noqa: PLC0415
@@ -489,8 +553,14 @@ def fill_new_row(service, proposal: dict, smap: dict, tz_name: str, notes: list[
         if not row_is_blank(table["rows"][index]):
             raise Unverified(f"row {index} of the action table is no longer blank, so it was not touched; "
                              f"someone may be typing in it")
-        requests = plan_row_fill(parsed, section, table["rows"][index], proposal["cells"],
-                                 proposal["named_range"], tz_name)
+        try:
+            requests = plan_row_fill(parsed, section, table["rows"][index], proposal["cells"],
+                                     proposal["named_range"], tz_name)
+        except Exception as exc:  # noqa: BLE001
+            # Not swallowed: planning failed after phase A inserted a row, so this goes
+            # to the cleanup below instead of escaping and stranding that row.
+            failure = f"the fill could not be planned ({exc.__class__.__name__}: {exc})"
+            break
         try:
             _batch(service, proposal["doc_id"], requests, revision)
             return
@@ -500,26 +570,19 @@ def fill_new_row(service, proposal: dict, smap: dict, tz_name: str, notes: list[
                 notes.append(f"phase B attempt 1 refused ({failure}); retried once from a fresh read")
                 continue
             break
+        except (TypeError, ValueError) as exc:
+            failure = f"the fill request was rejected before it was sent ({exc})"
+            break
         except Exception as exc:  # noqa: BLE001
-            # Not swallowed: an unanswered write is settled by the caller's read-back.
-            notes.append(f"phase B got no HTTP answer ({exc.__class__.__name__}); outcome decided by read-back")
+            # Not swallowed: an unanswered write is settled by the caller's read-back,
+            # which removes row `index` if it is still empty.
+            notes.append(f"phase B got no HTTP answer ({exc.__class__.__name__}); if the read-back finds row "
+                         f"{index} still empty, it is removed")
             return
-    # Filling failed twice. Remove the empty row this call inserted: reverting its
-    # own partial write is not deleting anybody's line.
-    parsed, revision = _fresh(service, proposal, smap, "cleanup")
-    table = _action_table(parsed, section)
-    if len(table["rows"]) > index and row_is_blank(table["rows"][index]):
-        tab_id = parsed["tabs"][parsed["target_tab"]]["tab_id"]
-        try:
-            _batch(service, proposal["doc_id"], [{"deleteTableRow": {"tableCellLocation": {
-                "tableStartLocation": {"index": table["start"], "tabId": tab_id},
-                "rowIndex": index, "columnIndex": 0}}}], revision)
-        except Exception as exc:  # noqa: BLE001
-            # Not swallowed: escalated as Unverified with the exact place to fix by hand.
-            raise Unverified(f"the row could not be filled ({failure}) and the empty row it inserted at row "
-                             f"{index} of the action table could not be removed ({exc.__class__.__name__}); "
-                             f"delete that empty row by hand") from exc
-        raise NotWritten(f"the row could not be filled ({failure}); the empty row it had inserted was removed")
+    state = remove_blank_row(service, proposal, smap)
+    if state in ("removed", "absent"):
+        raise NotWritten(f"the row could not be filled ({failure}); the empty row it had inserted (row {index}) "
+                         f"was {'removed' if state == 'removed' else 'already gone'}")
     raise Unverified(f"the row could not be filled ({failure}) and row {index} is no longer blank; not touched")
 
 
@@ -531,11 +594,17 @@ def apply(kind: str, proposal_path: Path, *, doc_arg: str | None, simulate_stale
     own_conn = conn is None
     conn = conn or ea_db.connect()
     ea_db.migrate(conn)
-    tz_name = register.identity().get("timezone") or "America/Toronto"
     outcome = {"kind": kind, "proposal": str(proposal_path), "doc_id": doc_arg}
     proposal: dict = {}
     notes: list[str] = []
     try:
+        # Identity and timezone are resolved BEFORE anything is sent. A missing tzdata
+        # package found after phase A would otherwise strand an empty row (exit 9).
+        try:
+            tz_name = register.identity().get("timezone") or "America/Toronto"
+            register.zone(tz_name)
+        except register.RegisterError as exc:
+            raise Refused(str(exc)) from exc
         proposal = check_proposal(conn, proposal_path, kind, doc_arg)
         outcome["doc_id"] = proposal["doc_id"]
         doc = check_allowlist(conn, proposal["doc_id"], fixture_mode=ea_db.fixture_mode(),
@@ -557,7 +626,12 @@ def apply(kind: str, proposal_path: Path, *, doc_arg: str | None, simulate_stale
                 # (or its read-back). Do not write it twice: verify what is there against
                 # the proposal and, if it matches, finish the bookkeeping.
                 located = verify(parsed, proposal, tz_name)
-                record_success(conn, proposal, doc, located, revision)
+                try:
+                    record_success(conn, proposal, doc, located, revision)
+                except Exception as exc:  # noqa: BLE001
+                    # Not swallowed: same reasoning as the main path; exit 4 names both facts.
+                    raise Unverified(f"the line is in the Doc and verified, but the register could not record "
+                                     f"it ({exc.__class__.__name__}: {exc}). Re-run the same command.") from exc
                 outcome.update(result="UPDATED", exit=EXIT_OK, revision=revision, ref=proposal["item_ref"],
                                where=f"{doc['title']} > {proposal['section']}",
                                notes=["recovered: the line was already in the Doc from an earlier write whose "
@@ -577,7 +651,16 @@ def apply(kind: str, proposal_path: Path, *, doc_arg: str | None, simulate_stale
                 if status == 400 and attempt == 1:
                     notes.append(f"attempt 1 refused by Google ({message}); retried once from a fresh read")
                     continue
+                if status >= 500:
+                    # A server error does not say whether the batch applied, so it is
+                    # settled by the read-back below, exactly like a lost response.
+                    notes.append(f"Google answered HTTP {status} to the write; outcome decided by read-back")
+                    break
                 raise NotWritten(f"Google refused the write (HTTP {status}): {message}") from exc
+            except (TypeError, ValueError) as exc:
+                # The client library refuses a malformed body before anything is sent.
+                # That is not a lost answer, and must not be reported as one.
+                raise NotWritten(f"the write request was rejected before it was sent ({exc})") from exc
             except Exception as exc:  # noqa: BLE001
                 # Not swallowed: the outcome of a write whose response was lost is
                 # UNKNOWN, so it is settled by the read-back below, never assumed.
@@ -598,9 +681,16 @@ def apply(kind: str, proposal_path: Path, *, doc_arg: str | None, simulate_stale
             raise Unverified(f"Google accepted the write but the read-back failed ({exc})") from exc
         try:
             located = verify(after, proposal, tz_name)
-        except Unverified:
+        except Unverified as exc:
+            if proposal.get("_new_row") is not None:
+                state = remove_blank_row(service, proposal, smap)
+                if state in ("removed", "absent"):
+                    raise NotWritten(f"the read-back did not show the filled row ({exc}); the empty row this write "
+                                     f"had inserted was {'removed' if state == 'removed' else 'already gone'}") from exc
+                raise Unverified(f"{exc}; row {proposal['_new_row']} of the action table holds content this "
+                                 f"write cannot vouch for, check it by hand") from exc
             if response is None:
-                raise NotWritten("the network failed mid-write and the read-back shows nothing written")
+                raise NotWritten("the network failed mid-write and the read-back shows nothing written") from exc
             raise
         new_revision = after["revision_id"] or docs_read.revision_key(after)
         try:
@@ -701,26 +791,39 @@ def main() -> int:
     parser.add_argument("--simulate-stale-revision", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    ea_db.console_utf8()
+    doc_hint = args.doc or ""
+    try:
+        doc_hint = doc_hint or json.loads(Path(args.proposal).read_bytes().decode("utf-8")).get("doc_id", "")
+    except (OSError, ValueError, AttributeError):
+        pass  # swallow: only a label for a crash audit row; apply() reports an unreadable proposal itself
     try:
         outcome = apply(args.kind, Path(args.proposal), doc_arg=args.doc,
                         simulate_stale=args.simulate_stale_revision)
     except Exception as exc:  # noqa: BLE001
-        # swallow: converted into exit 9 with the reason, and an audit row, so a crash
-        # is never mistaken for an update. _audit.record never raises.
+        # swallow: converted into exit 9 with the reason, and an audit row naming the Doc
+        # and the proposal, so a crash is never mistaken for an update.
         _audit.record(hook="docs_edit", tool="docs_edit", agent="WREN", decision="fail", rule_id=args.kind,
-                      target=str(args.doc or ""), detail=f"crash {exc.__class__.__name__}: {exc}"[:500])
+                      target=str(doc_hint), detail=f"crash {exc.__class__.__name__}: {exc}; proposal "
+                                                   f"{args.proposal}"[:500])
         print(f"RESULT: NOT UPDATED (crashed: {exc.__class__.__name__}: {exc})", file=sys.stderr)
         return EXIT_CRASH
-    if args.json:
-        print(json.dumps(outcome, indent=2, default=str))
-    if outcome["exit"] == EXIT_OK and outcome["result"] == "NO CHANGE":
-        print(f"RESULT: NO CHANGE ({outcome['detail']})")
-    elif outcome["exit"] == EXIT_OK:
-        print(f"RESULT: UPDATED {outcome.get('where')} ({outcome.get('ref')}), revision {outcome['revision'][:24]}...")
-        for note in outcome.get("notes") or []:
-            print(f"  note: {note}")
-    else:
-        print(f"RESULT: {outcome['detail']}", file=sys.stderr)
+    try:
+        if args.json:
+            print(json.dumps(outcome, indent=2, default=str))
+        if outcome["exit"] == EXIT_OK and outcome["result"] == "NO CHANGE":
+            print(f"RESULT: NO CHANGE ({outcome['detail']})")
+        elif outcome["exit"] == EXIT_OK:
+            print(f"RESULT: UPDATED {outcome.get('where')} ({outcome.get('ref')}), "
+                  f"revision {outcome['revision'][:24]}...")
+            for note in outcome.get("notes") or []:
+                print(f"  note: {note}")
+        else:
+            print(f"RESULT: {outcome['detail']}", file=sys.stderr)
+    except Exception:  # noqa: BLE001
+        # swallow: the exit code below is the outcome; a line that cannot be printed
+        # must never turn a verified write into a failure (or a failure into a crash).
+        sys.stderr.buffer.write(f"RESULT: {outcome.get('result')} (details could not be printed)\n".encode("ascii", "replace"))
     return int(outcome["exit"])
 
 

@@ -203,6 +203,7 @@ def main() -> int:
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--doc")
     args = parser.parse_args()
+    ea_db.console_utf8()
 
     conn = ea_db.connect()
     ea_db.migrate(conn)

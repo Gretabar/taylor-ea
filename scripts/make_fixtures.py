@@ -486,6 +486,7 @@ def main() -> int:
     parser.add_argument("--delete-unregistered", metavar="DOC_ID",
                         help="delete a half-built [FIXTURE] Doc that was never registered")
     args = parser.parse_args()
+    ea_db.console_utf8()
     if args.delete_unregistered:
         conn = ea_db.connect()
         try:

@@ -103,7 +103,7 @@ def run(conn, needs: dict, today: date) -> dict:
 
     report = {"docs": [], "calendar": [], "partial": []}
     for row in needs["docs"]:
-        result = docs_reconcile.reconcile_doc(conn, needs["docs_service"], row, actor="tick")
+        result = docs_reconcile.safe_reconcile(conn, needs["docs_service"], row, actor="tick")
         report["docs"].append(result)
         if result["status"] == "unreadable":
             report["partial"].append(f"{row['title']}: {result.get('error')}")
@@ -124,6 +124,7 @@ def main() -> int:
     parser.add_argument("--date", help="report as of this date (YYYY-MM-DD)")
     parser.add_argument("--dry-run", action="store_true", help="read everything, write nothing")
     args = parser.parse_args()
+    ea_db.console_utf8()
     today = date.fromisoformat(args.date) if args.date else date.today()
 
     try:

@@ -286,6 +286,7 @@ def main() -> int:
     parser.add_argument("--link-series")
     parser.add_argument("--calendar", default="primary")
     args = parser.parse_args()
+    ea_db.console_utf8()
 
     conn = ea_db.connect()
     ea_db.migrate(conn)

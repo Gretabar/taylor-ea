@@ -8,25 +8,34 @@ cell of an action's row, the register action completes, with history, and leaves
 
 WHAT COUNTS AS DONE. The Status cell, classified by docs_read.classify_status:
 "Done", "Done 2026-10-01", "Complete", "x" are done; empty or "In progress" is open;
-"not done", "mostly done" are AMBIGUOUS and surfaced as one Needs Your Input
-question, never auto-completed; a chip the API cannot read (a dropdown) is
-UNREADABLE and reported, never guessed. On a checklist line, strikethrough or a
-"(done ...)" marker counts. The live Docs have no checkboxes and no strikethrough;
+"not done", "mostly done" are AMBIGUOUS and become one Needs Your Input question,
+never an auto-completion; a chip the API cannot read (a dropdown) is UNREADABLE and
+becomes a question too, never a guess. On a checklist line, strikethrough of
+visible text or a "(done ...)" marker counts. The live Docs have no checkboxes;
 see docs/OPEN-QUESTIONS.md for what the checkbox experiment showed.
 
-REPLAY-SAFE. reconcile_events has UNIQUE(doc, revision, action, direction): the same
-revision can never complete the same action twice. An unchanged revision is skipped
-before anything is parsed, so a second tick on an unchanged Doc does nothing.
+REPLAY-SAFE, TWICE OVER. (1) reconcile_events has UNIQUE(doc, revision, action,
+direction), so the same revision cannot complete the same action twice; (2) only
+an action still open, snoozed or delegated is completed at all. Either alone would
+hold today; both are kept so neither is removed as redundant.
 
-NEVER DESTRUCTIVE. An item the Doc no longer shows is `missing`, reported, and NEVER
-cancelled: a manager tidying a table must not erase a commitment. A Done that a
-manager later clears does not silently reopen the action; it is reported as a
-conflict for Taylor. The API does not say who typed a change, so the actor is
-recorded as the tick or the agent, with the cell's words as the note.
+THE WATERMARK IS ITS OWN COLUMN. docs.reconciled_revision_id is written here and
+nowhere else. docs_edit.py stamps docs.last_revision_id after its own writes, and
+when the two were one column a manager's Done typed just before a WREN write was
+skipped as "unchanged" forever (silent-failure review, 2026-10-01).
 
-THE OTHER DIRECTION is not here. Register-to-Doc (Taylor says "done" in chat, and
-the Doc should show it) is WREN's, in a session, through docs_edit.py mark-done.
-This module lists such rows as `register_ahead` so /morning can say so.
+A DOC THAT NO LONGER PARSES IS UNREADABLE, NOT EMPTY. If the working tab or the
+meeting heading cannot be found, every item would look missing. That is reported
+as `unreadable` (structure), nothing in doc_items is touched, and the watermark
+does not move, so the next tick tries again instead of declaring the Doc clean.
+
+NEVER DESTRUCTIVE. An item the Doc no longer shows is `missing`, reported, NEVER
+cancelled. A Done a manager later clears is a conflict for Taylor, never a silent
+reopen. Every one of those reaches Needs Your Input, not just a log line.
+
+The other direction (Taylor says "done" in chat, the Doc should show it) is WREN's,
+in a session, through docs_edit.py mark-done; such rows are listed as
+`register_ahead` so /morning can say so.
 """
 
 from __future__ import annotations
@@ -45,26 +54,42 @@ import register  # noqa: E402
 TICK_ROLES = ("running_1on1", "checkbox_experiment")
 
 
-def _ask_once(conn, action, question: str, source_ref: str) -> str | None:
-    """One open question per action about its Doc status, never a pile of duplicates."""
-    existing = conn.execute("SELECT ref FROM needs_input WHERE action_id = ? AND source_kind = 'doc_status'"
-                            " AND status = 'open'", (action["id"],)).fetchone()
+def _ask_once(conn, action, kind: str, question: str, source_ref: str) -> str | None:
+    """One open question per action per kind, never a pile of duplicates."""
+    existing = conn.execute("SELECT ref FROM needs_input WHERE action_id = ? AND source_kind = ? AND status = 'open'",
+                            (action["id"], kind)).fetchone()
     if existing:
         return None
     ref = register.next_ref(conn, "question")
     conn.execute("INSERT INTO needs_input (ref, question, context, source_kind, source_ref, action_id, asked_at, status)"
-                 " VALUES (?,?,?,'doc_status',?,?,?,'open')",
-                 (ref, question, "read from the running Doc; nothing was assumed", source_ref, action["id"],
-                  ea_db.now_iso()))
+                 " VALUES (?,?,?,?,?,?,?,'open')",
+                 (ref, question, "read from the running Doc; nothing was assumed", kind, source_ref,
+                  action["id"], ea_db.now_iso()))
     return ref
 
 
+def _structurally_unreadable(parsed: dict, smap: dict) -> str:
+    """Why the Doc cannot be reconciled at all, or "" when it can."""
+    if parsed["target_tab"] is None:
+        return f"the working tab {smap.get('tab_title')!r} was not found (renamed or deleted?)"
+    if not parsed["blocks"]:
+        return f"no meeting heading {smap.get('block_heading')!r} was found in the working tab"
+    mapped = set((smap.get("sections") or {}).keys())
+    if mapped and mapped <= set(parsed["unmapped"]):
+        return "none of the mapped sections were found in the newest meeting block"
+    return ""
+
+
 def reconcile_doc(conn: sqlite3.Connection, service, doc_row, *, actor: str = "tick", force: bool = False) -> dict:
-    """Bring the register up to date with one Doc. Returns a report; raises nothing it can name."""
+    """Bring the register up to date with one Doc. Returns a report; a failure is in the report."""
     report = {"doc_id": doc_row["doc_id"], "title": doc_row["title"], "status": "ok", "completed": [],
               "ambiguous": [], "unreadable": [], "missing": [], "conflicts": [], "register_ahead": [],
               "questions": [], "warnings": []}
-    smap = json.loads(doc_row["section_map_json"] or "{}")
+    try:
+        smap = json.loads(doc_row["section_map_json"] or "{}")
+    except ValueError as exc:
+        report.update(status="unreadable", error=f"the stored section map is not valid JSON ({exc})")
+        return report
     try:
         document = docs_read.fetch(service, doc_row["doc_id"])
     except docs_read.DocReadError as exc:
@@ -75,11 +100,18 @@ def reconcile_doc(conn: sqlite3.Connection, service, doc_row, *, actor: str = "t
     report["revision"] = revision
     if not parsed["revision_id"]:
         report["warnings"].append("no revisionId: this account cannot edit this Doc; completions are still read")
+
+    broken = _structurally_unreadable(parsed, smap)
+    if broken:
+        # Nothing is marked missing and the watermark does not move: an unparseable
+        # Doc must never be recorded as a Doc in which everything disappeared.
+        report.update(status="unreadable", error=f"structure: {broken}")
+        return report
     if parsed["unmapped"]:
         report["warnings"].append(f"unmapped sections: {', '.join(parsed['unmapped'])}")
 
     now = ea_db.now_iso()
-    if revision == doc_row["last_revision_id"] and not force:
+    if revision == doc_row["reconciled_revision_id"] and not force:
         with conn:
             conn.execute("UPDATE docs SET verified_at = ? WHERE id = ?", (now, doc_row["id"]))
         report["status"] = "unchanged"
@@ -113,6 +145,7 @@ def reconcile_doc(conn: sqlite3.Connection, service, doc_row, *, actor: str = "t
             words = located.get("status_text") or located.get("text") or ""
             source = f"doc:{doc_row['doc_id']}@{revision[:24]}"
             if state == "checked" and action["status"] in ("open", "snoozed", "delegated"):
+                # Guard 1 of 2: the UNIQUE replay key. Guard 2 is the status test above.
                 inserted = conn.execute(
                     "INSERT OR IGNORE INTO reconcile_events (doc_id, revision_id, action_ref, direction, outcome, ts)"
                     " VALUES (?,?,?,'doc_to_register','completed',?)",
@@ -127,24 +160,52 @@ def reconcile_doc(conn: sqlite3.Connection, service, doc_row, *, actor: str = "t
                               f"the Doc reads {words!r}; the API does not record who typed it"))
                 report["completed"].append(action["ref"])
             elif state == "checked" and action["status"] == "cancelled":
-                report["conflicts"].append(f"{action['ref']} is cancelled in the register but reads done in the Doc")
-            elif state == "open" and action["status"] == "done":
-                if action["completed_via"] == "doc":
-                    report["conflicts"].append(f"{action['ref']} was completed from the Doc, and the Doc no longer "
-                                               f"reads done; left done, ask Taylor")
-                else:
-                    report["register_ahead"].append(action["ref"])
-            elif state == "ambiguous" and action["status"] != "done":
-                q = _ask_once(conn, action, f"{action['ref']} '{action['text']}': its row in {doc_row['title']} "
-                                            f"reads {words!r}. Is it done?", source)
-                report["ambiguous"].append(action["ref"])
+                conflict = f"{action['ref']} is cancelled in the register but reads done in {doc_row['title']}"
+                report["conflicts"].append(conflict)
+                q = _ask_once(conn, action, "doc_conflict", f"{conflict}. Which is right?", source)
                 if q:
                     report["questions"].append(q)
+            elif state == "open" and action["status"] == "done":
+                if action["completed_via"] == "doc":
+                    conflict = (f"{action['ref']} was completed from {doc_row['title']}, and the Doc no longer "
+                                f"reads done; it was left done")
+                    report["conflicts"].append(conflict)
+                    q = _ask_once(conn, action, "doc_conflict", f"{conflict}. Is it still done?", source)
+                    if q:
+                        report["questions"].append(q)
+                else:
+                    report["register_ahead"].append(action["ref"])
+            elif state == "ambiguous":
+                report["ambiguous"].append(action["ref"])
+                if action["status"] != "done":
+                    q = _ask_once(conn, action, "doc_status", f"{action['ref']} '{action['text']}': its row in "
+                                  f"{doc_row['title']} reads {words!r}. Is it done?", source)
+                    if q:
+                        report["questions"].append(q)
             elif state == "unreadable":
                 report["unreadable"].append(action["ref"])
-        conn.execute("UPDATE docs SET last_revision_id=?, verified_at=?, editable=? WHERE id=?",
+                q = _ask_once(conn, action, "doc_unreadable",
+                              f"{action['ref']} '{action['text']}': the Status cell in {doc_row['title']} holds a "
+                              f"chip the API cannot read (a dropdown?). Is it done? Typing Done as text makes it "
+                              f"readable.", source)
+                if q:
+                    report["questions"].append(q)
+        conn.execute("UPDATE docs SET reconciled_revision_id=?, verified_at=?, editable=? WHERE id=?",
                      (revision, now, 1 if parsed["revision_id"] else 0, doc_row["id"]))
     return report
+
+
+def safe_reconcile(conn, service, doc_row, *, actor: str, force: bool = False) -> dict:
+    """reconcile_doc, with any failure contained to this one Doc and reported as unreadable."""
+    try:
+        return reconcile_doc(conn, service, doc_row, actor=actor, force=force)
+    except Exception as exc:  # noqa: BLE001
+        # Not swallowed: returned as this Doc's failure, which the tick and /morning
+        # report and which makes the tick exit partial. One bad Doc must not stop the
+        # Docs after it from being reconciled.
+        return {"doc_id": doc_row["doc_id"], "title": doc_row["title"], "status": "unreadable",
+                "error": f"{exc.__class__.__name__}: {exc}", "completed": [], "ambiguous": [], "unreadable": [],
+                "missing": [], "conflicts": [], "register_ahead": [], "questions": [], "warnings": []}
 
 
 def docs_for_tick(conn, fixtures: bool) -> list:
@@ -156,7 +217,7 @@ def docs_for_tick(conn, fixtures: bool) -> list:
 def render(report: dict) -> str:
     head = f"  {report['status']:<10} {report['title']}"
     parts = []
-    for key in ("completed", "ambiguous", "unreadable", "missing", "register_ahead"):
+    for key in ("completed", "ambiguous", "unreadable", "missing", "register_ahead", "questions"):
         if report.get(key):
             parts.append(f"{key}: {', '.join(report[key])}")
     lines = [head + (("  " + "; ".join(parts)) if parts else "")]
@@ -170,6 +231,7 @@ def render(report: dict) -> str:
 def main() -> int:
     import argparse  # noqa: PLC0415
 
+    ea_db.console_utf8()
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--doc", help="one Doc; default every Doc the tick covers")
     parser.add_argument("--force", action="store_true", help="re-read even if the revision is unchanged")
@@ -186,9 +248,9 @@ def main() -> int:
         service = docs_read.docs_service()
         worst = 0
         for row in rows:
-            report = reconcile_doc(conn, service, row, actor=args.actor, force=args.force)
+            report = safe_reconcile(conn, service, row, actor=args.actor, force=args.force)
             print(render(report))
-            if report["status"] == "unreadable":
+            if report["status"] == "unreadable" or report["conflicts"]:
                 worst = 4
         return worst
     finally:

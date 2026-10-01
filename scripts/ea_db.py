@@ -61,7 +61,7 @@ def _resolve_db() -> Path:
 
 DB_PATH = _resolve_db()
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 PEOPLE_ALLOWED_COLUMNS = {
     "id", "key", "full_name", "work_email", "role", "aliases_json",
@@ -322,6 +322,19 @@ MIGRATIONS: list[tuple[int, str]] = [
         CREATE INDEX IF NOT EXISTS job_ticks_job_ts ON job_ticks (job, ts);
         """,
     ),
+    (
+        2,
+        """
+        -- One column, one meaning. docs.last_revision_id is the newest revision this
+        -- system has SEEN (docs_edit.py stamps it after its own write). The tick's
+        -- "already reconciled up to here" watermark must be a different column:
+        -- when they were the same, a manager's Done typed before a WREN write was
+        -- inside the revision WREN produced, the tick saw that revision as
+        -- already-done, and the completion was never ingested (silent-failure review,
+        -- 2026-10-01). Only docs_reconcile.py writes this column.
+        ALTER TABLE docs ADD COLUMN reconciled_revision_id TEXT;
+        """,
+    ),
 ]
 
 TABLES = (
@@ -334,6 +347,21 @@ TABLES = (
 def now_iso() -> str:
     """UTC, second precision, with the offset. Every timestamp in this DB is this."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def console_utf8() -> None:
+    """Make print() safe for Doc titles and Google's messages on a cp1252 console.
+
+    Without this, a Doc title with a curly apostrophe raised UnicodeEncodeError in
+    print() AFTER a write had landed and been verified, so a successful write exited
+    1 and invited a retry (silent-failure review, 2026-10-01). Every CLI here calls
+    it first. errors="replace" because a status line must never be what fails.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass  # swallow: a stream that cannot be reconfigured (a test capture) needs no fix
 
 
 def connect(path: Path | str | None = None, *, read_only: bool = False) -> sqlite3.Connection:

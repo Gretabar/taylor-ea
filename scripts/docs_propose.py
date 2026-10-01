@@ -215,6 +215,7 @@ def main() -> int:
     parser.add_argument("--doc")
     parser.add_argument("--section")
     args = parser.parse_args()
+    ea_db.console_utf8()
     conn = ea_db.connect()
     ea_db.migrate(conn)
     try:

@@ -53,7 +53,7 @@ Vendored 2026-10-01.
 | `.claude/hooks/statusline-ea.py` | `PIPER:.claude/hooks/statusline-piper.py` | `untracked` | `5066cb7556b7837c58906721d1466c41efe8331455e019fe402c1ce3a26ac1b5` | `c4d82805672c2ef2e5e5429e8ba54ef9591f579ec5c1ae124e2d642a57006457` | PORT |
 | `.claude/hooks/validate-on-edit.sh` | `PIPER:.claude/hooks/validate-on-edit.sh` | `untracked` | `915b7a11e81718da9e18d03a07b742e66ed1a16096b9081d2523d7601d537acd` | `3d3eb2b7bc77a1bbe20f30e978d5d324b91b53263c0931d8b4d149d7e034bffd` | PORT |
 | `.claude/settings.json` | `PIPER:.claude/settings.json` | `untracked` | `4a0f8f1882659f951beecdc9437be412b95be38ae32cee4cfd677e6553bffe77` | `136f7c1fa12123307a7cb2f3c8ebab0cae152c318da94b706f6eee8732a88959` | PORT |
-| `scripts/ea_db.py` | `PIPER:scripts/piper_db.py` | `untracked` | `1f0a2aa94a78366de4408268bf08dd46e0bd6f4a9c2bf1caa5f6e42029af50cd` | `0b2b9def1dda06b13e7520198af2ad03c4d4e616eb1d81414ef8620ba2fa8482` | PORT |
+| `scripts/ea_db.py` | `PIPER:scripts/piper_db.py` | `untracked` | `1f0a2aa94a78366de4408268bf08dd46e0bd6f4a9c2bf1caa5f6e42029af50cd` | `36375f65b7aa74c13533abeb084198436825dd14849442298a0e8de971b2890d` | PORT |
 | `scripts/approvals.py` | `PIPER:scripts/approvals.py` | `untracked` | `6ae22201b737e5723240777a3ac75de183ddaf116b14f97f398324232f5d4214` | `dabda1cc9a0c988f5005862986eedda71924b7657dd8fea385e6972e0681d4f5` | PORT |
 | `scripts/notify_owner.py` | `PIPER:scripts/notify_cass.py` | `untracked` | `661fb20f4e154868d699ab00732c632aa8536740ac484f411328956febf37847` | `e91e5d61ea435602d3b96ba5687c36ca756093cd7d42d112f7683d33facc64f4` | PORT |
 | `scripts/validate_agent_contracts.py` | `PIPER:scripts/validate_agent_contracts.py` | `untracked` | `fb2892cca02a78f2495ccb78ac1645432ec0e4ced23a1220c6e2bd1c154ae896` | `79e694a8ac597a412a7e4f0f65df63124b45bfcd1fa78ca7ab409422f1c6aa6e` | PORT |
@@ -66,17 +66,20 @@ Vendored 2026-10-01.
 | `scripts/register.py` | `-` | `-` | `-` | `c6bd14f0bf119f03298d30a530417778a61bf49538bd284769b670d26cf88969` | NEW |
 | `scripts/google_creds.py` | `STEVIE:scripts/upload_to_drive.py` | `untracked` | `8501f0e5e2c0f6c5e0b8220ae2a650eb7af453cb413b64666690889f6674f883` | `9edf8952c0912ac2a203685ee23ec5559974dcbb443678d562fe3bec37a3924b` | PORT |
 | `scripts/google_auth.py` | `STEVIE:scripts/marketing_report/google_auth.py` | `e3f42d2` | `92c3d715e28338de6aaef8b9c6241f8ac8c1abe14810b6ec3a841a5f1c272f8e` | `bc6115a7feb84c96743b96c71d1c4284ee80f65804f1dc59bd1ab494b03d84c5` | PORT |
-| `scripts/docs_read.py` | `-` | `-` | `-` | `4780fe9236bd6e9b165c6b2932196d7b333fb3e41d35f86111fe1c2027c3ba72` | NEW |
-| `scripts/link_docs.py` | `-` | `-` | `-` | `9d32f6e2d9eb621758be491442c0497b0cffbe32f5bede9ab5eb84bdb82a49c7` | NEW |
-| `scripts/calendar_next.py` | `-` | `-` | `-` | `d703104020d0751f994fd4c18168e7e81e0c821272187b79243abd1aa0ef8fe2` | NEW |
-| `scripts/make_fixtures.py` | `-` | `-` | `-` | `133fc4b384b7c340b311f0f1c510fdc47220f5c999b64ae15c1b281990502374` | NEW |
+| `scripts/docs_read.py` | `-` | `-` | `-` | `7d8a81a3b9a1ccb98a44180afbfb8eea72249b06b6765817bebe19ddfed6590e` | NEW |
+| `scripts/link_docs.py` | `-` | `-` | `-` | `90855f7ecdfb52c43fdfa75b290b43f3728525cfdb3fd74549f69c73ec8d20c5` | NEW |
+| `scripts/calendar_next.py` | `-` | `-` | `-` | `c3f4a9d7bd0108a926447d6d8297542bb1f3ddc2741243b5ad1b4dd5028c3114` | NEW |
+| `scripts/make_fixtures.py` | `-` | `-` | `-` | `756b456e36649fe3b357ff63638ab6480b1aaa64e6b2bb878923c86f26cc2b61` | NEW |
 | `tests/test_calendar_next.py` | `-` | `-` | `-` | `39b93a6afe224422e711ce8b14e1edb8c4ba08c99d0544ff214f8f42dce37c22` | NEW |
 | `tests/test_docs_read.py` | `-` | `-` | `-` | `eaced801952ec08874cba7972d324fcf9e146dd957cb3541da9c05295e561242` | NEW |
-| `scripts/docs_propose.py` | `-` | `-` | `-` | `8ba8feec1d3cd554091e88a76e7601b1046946216a415a915f7409ca65f2053f` | NEW |
-| `scripts/docs_edit.py` | `-` | `-` | `-` | `214ccc990e9ef78ca722e4d2cf5bb7630fdf32d2be3ee1932efd5e9704affa3d` | NEW |
-| `scripts/docs_reconcile.py` | `-` | `-` | `-` | `ec49c83eeb1389f4ccc51948be386659dbe83f54e7e1a24693dec08855235949` | NEW |
+| `scripts/docs_propose.py` | `-` | `-` | `-` | `5caf67bc93a6f62196cec58ef55c22ad0efcbe296291aab91f283b93b161b355` | NEW |
+| `scripts/docs_edit.py` | `-` | `-` | `-` | `2918114b463df9c0a56192c2f846dadf027dc98b0e8b83a9c22c4679758d3603` | NEW |
+| `scripts/docs_reconcile.py` | `-` | `-` | `-` | `8ae92c49a91167132497725c67a1d29f304c73eaad1f9b7a0bee4054362d74e7` | NEW |
 | `scripts/acceptance.py` | `-` | `-` | `-` | `1e8325250af5090ac26048270d96891722106d2c665307124606871f3312ecbc` | NEW |
-| `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `fc9e3d50711f89cd5923717e10350d9d4529b02b80698401bb72e3ab592bd347` | PORT |
+| `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `346d8159621e904f75c2156a1123fec232d3f1d7775ad27d82086bb5d558d5bc` | PORT |
+| `scripts/run_ea_tick.ps1` | `PIPER:scripts/run_cadence_tick.ps1` | `untracked` | `d7233a6d93db66768bebbb3ca61591de41356a88a56a0ad92ddbd621d6ddccb2` | `5ec03f6aa2b6196c05ab6c4abaee5125de8c167fd1e17bc3f0457b16bad787fa` | PORT |
+| `scripts/schedule_ea_tick.ps1` | `PIPER:scripts/schedule_cadence_tick.ps1` | `untracked` | `6189ca47717bb64d4bb7521b69f166330ddac8939e4a05dd57936f9d2e88ca7e` | `1124899fae5c81fbee7ed096a2a5b4d2de64096a42b947a665dae37e4f47fb79` | PORT |
+| `tests/test_review_regressions.py` | `-` | `-` | `-` | `29a18ae6c2d0661c9738e5a7048340e0fb5e2c2ebbfdcb0a97042c7275af1f4b` | NEW |
 <!-- end of manifest table -->
 
 ## What changed, and why
