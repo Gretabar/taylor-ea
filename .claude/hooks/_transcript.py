@@ -1,6 +1,6 @@
 """Shared dispatch detection for this repo's hooks.
 
-PORTED FROM PIPER. Three changes made here, recorded in VENDORED-FROM.md:
+PORTED FROM PIPER. Four changes made here, recorded in VENDORED-FROM.md:
 
   1. A SLASH COMMAND IS A TURN BOUNDARY. Claude Code records `/add Kaed ...` as a user
      row holding only <command-message>, <command-name> and <command-args> blocks,
@@ -25,6 +25,17 @@ PORTED FROM PIPER. Three changes made here, recorded in VENDORED-FROM.md:
      system row and a type=user summary row (isCompactSummary) to the same file. When
      it fires mid-turn, ending the walk there would hide the turn's earlier dispatches
      (a false SOLO) and its earlier writes (a false "nothing written").
+
+  4. A REFUSED CALL IS NOT A DISPATCH. require-active-agent.py refuses a switched-off
+     agent before it starts, but the Agent tool_use is still in the transcript.
+     Counted, the roll call would print "TEAM | MILO (1 dispatched)" for an agent that
+     never ran, and require-dispatch.py would let a later solo write through because
+     "a dispatch happened". So the walk reads the refusals too: a tool_result row
+     with is_error and either Claude Code's own toolDenialKind field or a
+     "PreToolUse:" hook message (both observed on a live VS Code session, v2.1.222,
+     2026-10-01). A refused dispatch goes to TurnContext.refused, and each tool use
+     carries `refused`. It is evidence, not inference: if a gate ever failed open,
+     the agent that ran is named, because nothing refused it.
 
 Several hooks need the same fact -- "which agents were dispatched since the user
 last spoke?" -- and a copy of the parse in each would guarantee the copies drift,
@@ -87,6 +98,7 @@ class TurnContext:
     found_turn_boundary: bool = False
     tool_uses: list[dict] = field(default_factory=list)
     unparsed_lines: int = 0
+    refused: list[str] = field(default_factory=list)
 
 
 def _read_lines(transcript_path: str | Path | None) -> list[str]:
@@ -161,26 +173,60 @@ def _is_real_user_turn(event: dict) -> bool:
 
 
 def _tool_uses(event: dict) -> list[dict]:
-    """{"name", "input"} of every tool_use block in one main-thread assistant event."""
+    """{"name", "input", "id"} of every tool_use block in one main-thread assistant event."""
     if event.get("type") != "assistant" or event.get("isSidechain") is True:
         return []
     message = event.get("message")
     content = message.get("content") if isinstance(message, dict) else None
-    return [{"name": block.get("name"), "input": block.get("input")}
+    return [{"name": block.get("name"), "input": block.get("input"), "id": block.get("id")}
             for block in content or []
             if isinstance(block, dict) and block.get("type") == "tool_use"]
 
 
-def _agent_calls(event: dict) -> list[str]:
-    """subagent_type of every Agent tool call in one assistant event."""
+def _agent_calls(event: dict) -> list[tuple[str, str]]:
+    """(subagent_type, tool_use id) of every Agent call in one assistant event. Task is its older name."""
     if event.get("type") != "assistant" or event.get("isSidechain") is True:
         return []
     found = []
     for block in event.get("message", {}).get("content", []) or []:
         if not isinstance(block, dict) or block.get("type") != "tool_use":
             continue
-        if block.get("name") == "Agent":
-            found.append(block.get("input", {}).get("subagent_type", ""))
+        if block.get("name") in ("Agent", "Task"):
+            given = block.get("input")
+            found.append(((given or {}).get("subagent_type", "") if isinstance(given, dict) else "",
+                          str(block.get("id") or "")))
+    return found
+
+
+def _result_text(block: dict) -> str:
+    content = block.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    return ""
+
+
+def _denied_ids(event: dict) -> set[str]:
+    """tool_use ids whose call was refused before it ran: by a hook, a permission rule, or the user.
+
+    is_error alone is not enough: a subagent that ran and then failed also returns an
+    error, and it may have done things first. A refusal carries Claude Code's own
+    toolDenialKind on the row, or a hook's "PreToolUse:" message.
+    """
+    if event.get("type") != "user" or event.get("isSidechain") is True:
+        return set()
+    message = event.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, list):
+        return set()
+    found = set()
+    for block in content:
+        if not isinstance(block, dict) or block.get("type") != "tool_result" or block.get("is_error") is not True:
+            continue
+        if event.get("toolDenialKind") or _result_text(block).startswith("PreToolUse:"):
+            if block.get("tool_use_id"):
+                found.add(str(block["tool_use_id"]))
     return found
 
 
@@ -198,7 +244,10 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
 
     parsed_any = False
     dispatches_reversed: list[str] = []
+    refused_reversed: list[str] = []
     tool_uses_reversed: list[dict] = []
+    # Walking backwards, a call's result row is met before the call itself.
+    denied: set[str] = set()
 
     for line in reversed(lines):
         try:
@@ -223,8 +272,12 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
             ctx.found_turn_boundary = True
             break
 
-        dispatches_reversed.extend(reversed(_agent_calls(event)))
-        tool_uses_reversed.extend(reversed(_tool_uses(event)))
+        denied |= _denied_ids(event)
+        for subagent_type, use_id in reversed(_agent_calls(event)):
+            (refused_reversed if use_id and use_id in denied else dispatches_reversed).append(subagent_type)
+        for use in reversed(_tool_uses(event)):
+            use["refused"] = bool(use.get("id")) and str(use.get("id")) in denied
+            tool_uses_reversed.append(use)
 
     if not parsed_any:
         raise TranscriptUnreadable(
@@ -232,6 +285,7 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
         )
 
     ctx.dispatches = [s for s in reversed(dispatches_reversed) if s]
+    ctx.refused = [s or "general-purpose" for s in reversed(refused_reversed)]
     ctx.tool_uses = list(reversed(tool_uses_reversed))
     return ctx
 

@@ -1,26 +1,59 @@
 {
-  "version": 1,
+  "version": 2,
   "about": [
-    "The agent roster, fixed now so later phases add files and never rename. Read by",
-    ".claude/hooks/_gate.py (ROSTER), team-rollcall.py, statusline-ea.py and",
-    "scripts/validate_agent_contracts.py, so all four agree on who exists.",
+    "The agent roster: thirteen specialists under the orchestrator. Read by .claude/hooks/_gate.py",
+    "(ROSTER: who a payload's agent_type may name), scripts/team.py (who is switched on, and the",
+    "exact words a switched-off agent answers with), and scripts/validate_agent_contracts.py",
+    "(every agent here has a file, with the model given here, and a switched-off one holds only",
+    "Read, Glob and Grep). The roll call and the status line name whoever the transcript shows",
+    "was dispatched and skip a dispatch a gate refused, so they need no copy of this list.",
     "",
-    "Phase 1 agents have a file under .claude/agents/. Phase 2+ agents are listed so the",
-    "names are reserved; the contract validator reports them as NOTE, not as failures.",
+    "`lane` is the parenthesis in the NOT SWITCHED ON lines that docs/FOR-TAYLOR.md quotes.",
+    "`phase` is the blueprint phase; null means outside the blueprint. `via` names a deviation",
+    "that can switch the agent on by itself (docs/DEVIATIONS.md).",
     "",
-    "`delivery: true` marks the one agent allowed to run scripts/docs_edit.py. The hook",
-    "that enforces it (require-delivery-agent.py) hardcodes the same name on purpose, and",
-    "the guardrail self-test checks the two still agree."
+    "`delivery: true` marks the one agent allowed to run scripts/docs_edit.py and `privacy: true`",
+    "the one allowed to run scripts/privacy_review.py. The hooks that enforce them hardcode the",
+    "same names on purpose, and the guardrail self-test checks the two still agree."
   ],
   "orchestrator": {"command": "NAME", "phase": 1, "lane": "dispatch, reality-checker, deviation memos, Needs Your Input"},
   "agents": [
-    {"name": "REED", "phase": 1, "model": "opus", "specialty": "Action Register: topic vs commitment, owner and date resolution, history, retrieval"},
-    {"name": "PAGE", "phase": 1, "model": "sonnet", "specialty": "Running Docs: read structure, pick the section, write the edit proposal"},
-    {"name": "WREN", "phase": 1, "model": "opus", "specialty": "Delivery: the only agent that runs docs_edit.py; reads every write back", "delivery": true},
-    {"name": "HUGO", "phase": 1, "model": "opus", "specialty": "Unblocking: tokens, 4xx, stale revisions, a gate that looks wrong"},
-    {"name": "MILO", "phase": 2, "model": "opus", "specialty": "Transcripts, weekly Live/Download, next-meeting creation"},
-    {"name": "LARK", "phase": 3, "model": "sonnet", "specialty": "Daily brief, reply control, meeting prep (also Phase 7)"},
-    {"name": "ATLAS", "phase": 4, "model": "sonnet", "specialty": "Projects and knowledge, source freshness"},
-    {"name": "CLEO", "phase": 5, "model": "opus", "specialty": "Reservation drafts under approved rules"}
-  ]
+    {"name": "REED", "phase": 1, "model": "opus", "lane": "Action Register",
+     "specialty": "Topic or commitment, owner and date resolution, history, retrieval"},
+    {"name": "PAGE", "phase": 1, "model": "sonnet", "lane": "running Docs",
+     "specialty": "Read structure, pick the section, write the edit proposal"},
+    {"name": "WREN", "phase": 1, "model": "opus", "lane": "delivery", "delivery": true,
+     "specialty": "The only agent that runs docs_edit.py; reads every write back"},
+    {"name": "HUGO", "phase": 1, "model": "opus", "lane": "unblocking",
+     "specialty": "Tokens, 4xx, stale revisions, a gate that looks wrong"},
+    {"name": "SAGE", "phase": 1, "model": "opus", "lane": "privacy and governance", "privacy": true,
+     "specialty": "Reviews the proposals the privacy screen flags; approves or holds with privacy_review.py; G1 to G3 judgement"},
+    {"name": "LARK", "phase": 3, "model": "sonnet", "lane": "daily brief and meeting prep", "via": "D-3",
+     "specialty": "Read-only prep for a 1:1 now (D-3); the daily brief is Phase 3 and fuller prep Phase 7"},
+    {"name": "MILO", "phase": 2, "model": "opus", "lane": "meetings and transcripts",
+     "specialty": "Transcripts, 1:1 processing, the weekly store meeting, next-meeting creation"},
+    {"name": "RUTH", "phase": 2, "model": "opus", "lane": "professional documentation",
+     "specialty": "Factual management records drafted privately; Taylor classifies, never RUTH"},
+    {"name": "ATLAS", "phase": 4, "model": "sonnet", "lane": "projects and company knowledge",
+     "specialty": "Projects, co-owners and deadlines; current versus historical company knowledge"},
+    {"name": "CLEO", "phase": 5, "model": "opus", "lane": "reservation replies",
+     "specialty": "Reservation and corporate-event reply drafts under the approved rules, Moreen copied"},
+    {"name": "JUNE", "phase": 7, "model": "sonnet", "lane": "calendar",
+     "specialty": "Calendar and availability on explicit command; private details stay private"},
+    {"name": "PENN", "phase": null, "model": "sonnet", "lane": "sales and events pipeline", "via": "D-4",
+     "specialty": "Commission, promoter and event ROI tracking; stale leads with Moreen"},
+    {"name": "TALLY", "phase": 6, "model": "sonnet", "lane": "reporting",
+     "specialty": "Product and games mix, repeat guests; only if Taylor resumes Phase 6"}
+  ],
+  "build_record": {
+    "about": [
+      "Mike's half of 'is this agent switched on': what is built and accepted on the build",
+      "machine. A key is a phase ('phase 2') or a deviation ('D-4'); `accepted` is the date",
+      "its acceptance passed on fixtures, and `evidence` the report that shows it (the report",
+      "stays on the build machine). A key that is absent is not built. This file is code: it",
+      "changes only on the machine state/BUILD_MACHINE names."
+    ],
+    "phase 1": {"accepted": "2026-10-01", "evidence": "docs/acceptance/P1-2026-10-01.md"},
+    "D-3": {"accepted": "2026-10-01", "evidence": "docs/acceptance/P1-2026-10-01.md, LARK prep leg"}
+  }
 }

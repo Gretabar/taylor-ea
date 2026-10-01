@@ -26,6 +26,7 @@ Enterprise agreement, with no training and with audit logs".
 | The register (`state/ea.db`) | this laptop only; never synced, never in git, never in the kit | an agent reads part of it during a session |
 | The OAuth token and client (`state/`) | this laptop only | never; only used to call Google |
 | Proposals and snapshots (`state/proposals`, `state/records`) | this laptop only | an agent reads one during a session |
+| Taylor's private notes (`state/private/notes.md`) | this laptop only; never synced, never in git or the kit | an agent reads them during a session |
 | The running 1:1 Docs | Greta's Google Workspace (they always were) | already in Google; read into a session when needed |
 | Fixture Docs | Taylor's own Drive, titled [FIXTURE] | they contain placeholder text only |
 | The audit log (`logs/`, the audit table) | this laptop only | never, unless someone sends it |
@@ -43,6 +44,19 @@ Documents and Desktop are redirected to OneDrive on a corporate laptop.
   manager by mentioning them.
 - Phase 2 (transcripts) has stricter rules in blueprint section 2: raw transcripts are private
   Taylor data and never go into a shared Doc. Nothing in Phase 1 reads a transcript.
+
+## Personal context in a Doc a manager reads
+
+A running 1:1 Doc is read by the manager it is about, so a line written there is a disclosure to
+that person. Every Doc edit proposal is screened for personal words: health, family, leave, mental
+health, addiction, discipline, harassment or a complaint, legal or immigration matters, and one
+person's pay. A flagged proposal waits for SAGE, who approves it only when the words are what the
+manager needs for the work, and holds it otherwise. A hold writes nothing to the Doc; Taylor is told
+why and offered his private notes instead, which stay on this laptop.
+
+What this does not cover: the screen reads words, not meaning, so a personal matter phrased without
+any of them passes (`docs/OPEN-QUESTIONS.md`, item 12). The register on this laptop keeps the words
+Taylor captured either way; the screen decides what reaches a Doc, not what the register holds.
 
 ## The law, stated so the right questions get asked
 

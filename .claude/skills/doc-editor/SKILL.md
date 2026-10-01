@@ -33,8 +33,17 @@ a live Doc until its map says so.
 `python scripts/docs_propose.py <add-topic|add-action|mark-done|update-due> --ref <ref> [--doc <id>]`
 
 The proposal's words come from the register, and the script refuses text that breaks a content
-rule. Hand WREN the printed proposal path and Doc id. Never open or edit the proposal file: its
-sha256 is recorded, and WREN refuses a changed byte.
+rule. Never open or edit the proposal file: its sha256 is recorded, and WREN refuses a changed byte.
+
+Then read the `privacy_review:` line the script prints:
+
+- `not_required`: hand WREN the proposal path and Doc id.
+- `required (<category>: ...)`: the words carry personal context (health, family, leave,
+  discipline, a complaint, legal matters, one person's pay). Hand the path to the orchestrator for
+  SAGE, not to WREN; WREN's script refuses it until SAGE approves those exact bytes.
+
+If a line feels personal and the screen did not flag it, say so to the orchestrator rather than
+waving it through; the screen reads words, not meaning.
 
 ## What never happens
 

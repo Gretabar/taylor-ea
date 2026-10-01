@@ -261,6 +261,9 @@ def rebuild(ev: Evidence) -> None:
             ev.add(f"- previous fixture `{doc['doc_id']}` not deleted ({exc.__class__.__name__}); continuing")
     for suffix in ("", "-wal", "-shm"):
         Path(str(ea_db.FIXTURE_DB) + suffix).unlink(missing_ok=True)
+    if register.FIXTURE_PRIVATE_NOTES.exists():
+        register.FIXTURE_PRIVATE_NOTES.unlink()
+        ev.add(f"- removed the previous run's `{register.FIXTURE_PRIVATE_NOTES.relative_to(ROOT).as_posix()}`")
     result = sh("scripts/make_fixtures.py", "--create")
     ev.cmd("make_fixtures.py --create", result)
     if result.code != 0:
@@ -274,7 +277,7 @@ NOTHING_BUILT = "no fixture Docs are registered"
 # Tables make_fixtures.py --create never writes and every leg does. One row is
 # enough to say a run happened here.
 RUN_TABLES = ("actions", "action_events", "topics", "needs_input", "doc_items", "reconcile_events",
-              "captures", "proposals", "counters")
+              "captures", "proposals", "counters", "privacy_reviews")
 
 
 def expected_roles() -> Counter:
@@ -743,6 +746,249 @@ def g5(ev: Evidence) -> dict:
                                  "Taylor's correction 'Kade' -> kaed, still no new row"}
 
 
+# ---------------------------------------------------------------------------
+# the roster legs: SAGE, LARK's prep, and the switched-off agents
+# ---------------------------------------------------------------------------
+
+def proposal_of(prop: Run, label: str) -> tuple[str, str]:
+    """(proposal path, doc id) from docs_propose.py's output; their absence is the system's failure."""
+    path = next((ln.split(None, 1)[1].strip() for ln in prop.out.splitlines()
+                 if ln.startswith("proposal:") and len(ln.split(None, 1)) == 2), None)
+    doc_id = next((ln.split("--doc ", 1)[1].split()[0] for ln in prop.out.splitlines()
+                   if "--doc " in ln and ln.split("--doc ", 1)[1].split()), None)
+    if prop.code != 0 or not path or not doc_id:
+        raise SystemFailure(f"{label} exited {prop.code} without its proposal: and --doc lines: "
+                            f"{(prop.err.strip() or prop.out.strip())[-160:]}")
+    return path, doc_id
+
+
+def topic_texts(doc: dict, section: str = "taylor_topics") -> list[str]:
+    parsed = read(doc)
+    tab = parsed["tabs"][parsed["target_tab"]]
+    return [tab["items"][i]["text"] for i in parsed["sections"][section]["items"]]
+
+
+def sage(ev: Evidence) -> dict:
+    """Privacy: personal words are held for SAGE, WREN refuses without a stamp, a hold writes
+    nothing, an approval lands, and a clean topic flows with no SAGE at all."""
+    doc = doc_of("Kaed x Taylor")
+    rev_start = read(doc)["revision_id"]
+
+    def topic(text: str) -> str:
+        made = sh("scripts/register.py", "add-topic", "--person", "kaed", "--text", text,
+                  "--instruction-date", INSTRUCTION_DATE)
+        ev.cmd(f"register.py add-topic --person kaed --text \"{text}\"", made)
+        return system_json(made, "register.py add-topic", "ref")["ref"]
+
+    def deliver(path: str, doc_id: str, label: str) -> Run:
+        applied = sh("scripts/docs_edit.py", "add-topic", "--doc", doc_id, "--proposal", path)
+        ev.cmd(f"docs_edit.py add-topic --doc {doc_id[:12]}... --proposal {Path(path).name}   ({label})", applied)
+        return applied
+
+    # 1. Personal context SAGE keeps out of the manager's Doc.
+    held_text = "Family matter Kaed raised after the meeting"
+    held = topic(held_text)
+    prop = sh("scripts/docs_propose.py", "add-topic", "--ref", held)
+    ev.cmd(f"docs_propose.py add-topic --ref {held}", prop)
+    held_path, doc_id = proposal_of(prop, "docs_propose.py add-topic")
+    unstamped = deliver(held_path, doc_id, "no SAGE stamp yet")
+    hold = sh("scripts/privacy_review.py", "--hold", held_path, "--reason",
+              "Personal family context belongs in Taylor's private notes, not in the Doc Kaed reads.")
+    ev.cmd(f"privacy_review.py --hold {Path(held_path).name} --reason ...   (as SAGE)", hold)
+    after_hold = deliver(held_path, doc_id, "after SAGE's hold")
+    rev_after_hold = read(doc)["revision_id"]
+    held_row = system_row("held topic", "SELECT ref, status FROM topics WHERE ref = ?", held)
+    held_items = scalar("SELECT COUNT(*) FROM doc_items WHERE item_ref = ?", held)
+    notes = register.FIXTURE_PRIVATE_NOTES
+    notes_before = notes.read_text(encoding="utf-8") if notes.exists() else ""
+    kept = sh("scripts/register.py", "keep-private", held)
+    ev.cmd(f"register.py keep-private {held}   (Taylor: yes, keep it private)", kept)
+    notes_after = notes.read_text(encoding="utf-8") if notes.exists() else ""
+    held_after = system_row("held topic", "SELECT ref, status FROM topics WHERE ref = ?", held)
+
+    # 2. Personal context that is the work itself: SAGE approves, and only then does it land.
+    ok_text = "Shift swap to cover a medical appointment"
+    approved = topic(ok_text)
+    prop2 = sh("scripts/docs_propose.py", "add-topic", "--ref", approved)
+    ev.cmd(f"docs_propose.py add-topic --ref {approved}", prop2)
+    ok_path, _ = proposal_of(prop2, "docs_propose.py add-topic")
+    unstamped2 = deliver(ok_path, doc_id, "no SAGE stamp yet")
+    rev_before_approve = read(doc)["revision_id"]
+    approve = sh("scripts/privacy_review.py", "--approve", ok_path, "--reason",
+                 "The shift swap is the work Kaed has to act on, and it names no medical detail.")
+    ev.cmd(f"privacy_review.py --approve {Path(ok_path).name} --reason ...   (as SAGE)", approve)
+    landed = deliver(ok_path, doc_id, "after SAGE's approval")
+
+    # 3. A clean topic: the screen passes it, and it flows with no SAGE.
+    clean_text = "Christmas lights for the patio"
+    clean = topic(clean_text)
+    prop3 = sh("scripts/docs_propose.py", "add-topic", "--ref", clean)
+    ev.cmd(f"docs_propose.py add-topic --ref {clean}", prop3)
+    clean_path, _ = proposal_of(prop3, "docs_propose.py add-topic")
+    landed3 = deliver(clean_path, doc_id, "no SAGE involved")
+    texts = topic_texts(doc)
+    stamps = rows("SELECT item_ref, verdict, category, reviewer FROM privacy_reviews ORDER BY id")
+
+    # 4. The SAGE-only gate, driven with payloads shaped like the live session's (audit rows 61 to 63:
+    #    a main-thread call carries no agent_id; a subagent call carries agent_id and agent_type).
+    command = f'python scripts/privacy_review.py --approve {held_path} --reason "x"'
+    base = {"session_id": "acceptance-sage", "transcript_path": str(ROOT / "no-transcript.jsonl"), "cwd": str(ROOT),
+            "permission_mode": "default", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": command, "description": "record a privacy verdict"},
+            "tool_use_id": "toolu_acceptance_sage"}
+    as_wren = run_hook("require-privacy-agent.py", {**base, "agent_id": "a8a24234a720a8154", "agent_type": "wren"})
+    ev.cmd("hook require-privacy-agent: privacy_review.py from WREN (agent_id + agent_type wren)", as_wren)
+    as_main = run_hook("require-privacy-agent.py", base)
+    ev.cmd("hook require-privacy-agent: privacy_review.py from the main thread (no agent_id)", as_main)
+    as_sage = run_hook("require-privacy-agent.py", {**base, "agent_id": "a9e344b62c1f7e11b", "agent_type": "sage"})
+    ev.cmd("hook require-privacy-agent: privacy_review.py from SAGE", as_sage)
+
+    ev.add(f"- Kaed's Doc revision: start `{rev_start[:20]}...`, after the hold `{rev_after_hold[:20]}...` "
+           f"(unchanged), before the approval `{rev_before_approve[:20]}...`")
+    ev.add(f"- held topic before keep-private `{held_row}`, doc_items rows for it: {held_items}; "
+           f"after keep-private `{held_after}`")
+    ev.add(f"- private notes gained the held words: {held_text in notes_after and held_text not in notes_before}")
+    ev.add(f"- Kaed's taylor_topics as re-read from Google: `{texts}`")
+    ev.add(f"- privacy_reviews rows: `{stamps}`")
+    ok = ("privacy_review: required" in prop.out and unstamped.code == 2 and "SAGE" in unstamped.err
+          and hold.code == 0 and after_hold.code == 2 and "holding" in after_hold.err
+          and rev_after_hold == rev_start and held_row["status"] == "queued" and held_items == 0
+          and held_text not in texts and kept.code == 0 and held_after["status"] == "dropped"
+          and held_text in notes_after and held_text not in notes_before
+          and "privacy_review: required" in prop2.out and unstamped2.code == 2 and approve.code == 0
+          and landed.code == 0 and ok_text in texts
+          and "privacy_review: not_required" in prop3.out and landed3.code == 0 and clean_text in texts
+          and not any(s["item_ref"] == clean for s in stamps)
+          and [(s["item_ref"], s["verdict"]) for s in stamps] == [(held, "hold"), (approved, "approve")]
+          and all(s["reviewer"] == "SAGE" for s in stamps)
+          and as_wren.code == 2 and as_main.code == 2 and as_sage.code == 0)
+    return {"ok": ok, "summary": f"{held} (family) held: WREN refused without a stamp and again after SAGE's hold, "
+                                 f"Doc revision unchanged, kept in the private notes on request; {approved} (health) "
+                                 f"refused until SAGE approved, then landed; {clean} flowed with no SAGE; "
+                                 f"privacy_review.py refused from WREN and the main thread, allowed from SAGE"}
+
+
+def register_digest() -> str:
+    """The register's whole logical content, read through a read-only connection."""
+    import sqlite3  # noqa: PLC0415
+
+    conn = sqlite3.connect(f"file:{ea_db.FIXTURE_DB.as_posix()}?mode=ro", uri=True)
+    try:
+        return hashlib.sha256("\n".join(conn.iterdump()).encode("utf-8")).hexdigest()
+    finally:
+        conn.close()
+
+
+def lark_prep(ev: Evidence) -> dict:
+    """LARK's prep is read only, and lists what Taylor owes that person (P3.7's shape)."""
+    doc = doc_of("Kaed x Taylor")
+    for args in (("--text", "Send Kaed the patio staffing numbers", "--owner", "taylor", "--due", "2026-10-06"),
+                 ("--text", "Bring the bar inventory variance", "--owner", "kaed", "--due", "2026-10-07"),
+                 ("--text", "Draft the weekend coverage rota", "--owner", "kaed", "--due", "unresolved")):
+        made = sh("scripts/register.py", "add-action", *args, "--counterpart", "kaed",
+                  "--instruction-date", INSTRUCTION_DATE)
+        ev.cmd(f"register.py add-action {' '.join(args)} --counterpart kaed   (setup)", made)
+        system_json(made, "register.py add-action", "ref")
+    you_owe = [r["ref"] for r in rows("SELECT a.ref FROM actions a JOIN people o ON o.id = a.owner_person_id"
+                                      " JOIN people c ON c.id = a.counterpart_person_id WHERE o.key = 'taylor'"
+                                      " AND c.key = 'kaed' AND a.status IN ('open', 'snoozed')")]
+    to_answer = [r["ref"] for r in rows("SELECT n.ref FROM needs_input n JOIN actions a ON a.id = n.action_id"
+                                        " JOIN people p ON p.id = a.counterpart_person_id"
+                                        " WHERE p.key = 'kaed' AND n.status = 'open'")]
+    they_owe = [r["ref"] for r in rows("SELECT a.ref FROM actions a JOIN people o ON o.id = a.owner_person_id"
+                                       " WHERE o.key = 'kaed' AND a.status IN ('open', 'snoozed')")]
+
+    db_before = register_digest()
+    service = docs_read.docs_service()
+    doc_before = docs_read.fetch(service, doc["doc_id"])
+    brief = sh("scripts/prep.py", "--person", "Kaed")
+    ev.cmd("prep.py --person Kaed   (\"prep me for Kaed\")", brief)
+    deep = sh("scripts/prep.py", "--person", "kaed", "--deep")
+    ev.cmd("prep.py --person kaed --deep   (\"what does Kaed owe me?\")", deep)
+    db_after = register_digest()
+    doc_after = docs_read.fetch(service, doc["doc_id"])
+    smap = json.loads(doc["section_map_json"])
+    doc_same = (doc_before.get("revisionId") == doc_after.get("revisionId")
+                and _content(docs_read.parse(doc_before, smap)) == _content(docs_read.parse(doc_after, smap)))
+    ev.add(f"- expected from the register: Taylor owes Kaed `{you_owe}`, Taylor must answer `{to_answer}`, "
+           f"Kaed owes Taylor `{they_owe}`")
+    ev.add(f"- register sha256 (logical dump) before `{db_before[:16]}...`, after `{db_after[:16]}...`")
+    ev.add(f"- Kaed's Doc revision before `{str(doc_before.get('revisionId'))[:20]}...`, after "
+           f"`{str(doc_after.get('revisionId'))[:20]}...`; content identical: {doc_same}")
+    # The ref that leads each listed line. A question may quote Kaed's action ref inside its
+    # own text ("A-0012 '...': when is it due?"); that is Taylor's question, not Kaed's list.
+    def listed(run: Run) -> set[str]:
+        return {line.split()[0] for line in run.out.splitlines() if line.startswith("  ") and line.split()}
+
+    ok = (brief.code == 0 and deep.code == 0 and db_before == db_after and doc_same and bool(you_owe)
+          and bool(to_answer) and bool(they_owe) and doc["url"] in brief.out
+          and set(you_owe + to_answer) <= listed(brief) and not set(they_owe) & listed(brief)
+          and set(they_owe) <= listed(deep))
+    return {"ok": ok, "summary": f"read only (register and Kaed's Doc unchanged); the brief lists what Taylor owes "
+                                 f"Kaed ({', '.join(you_owe)}) and must answer ({', '.join(to_answer)}) with the Doc "
+                                 f"link, and leaves what Kaed owes ({', '.join(they_owe)}) to --deep"}
+
+
+# Mike's brief, as docs/FOR-TAYLOR.md quotes it: the exact lines each refusal must print.
+NOT_SWITCHED_ON = {
+    "milo": ("NOT SWITCHED ON YET: MILO (meetings and transcripts), Phase 2.",
+             'To switch it on: say "architecture change ok: switch on Phase 2", and Mike builds it.'),
+    "penn": ("NOT SWITCHED ON: PENN (sales and events pipeline) is outside your architecture.",
+             'To switch it on: say "architecture change ok: add PENN", then Mike builds it.'),
+    "tally": ("NOT SWITCHED ON: TALLY (reporting) is Phase 6, which you deferred.",
+              'To switch it on: say "architecture change ok: resume Phase 6", then Mike builds it.'),
+}
+
+
+def inactive_dispatch(ev: Evidence) -> dict:
+    """MILO, PENN and TALLY are refused before they start, with exactly the lines Taylor's docs quote.
+
+    The payload is shaped like the live VS Code session's (5e587b4f, claude-vscode v2.1.222):
+    the common hook fields, tool_name Agent, a tool_use_id, and the Agent input keys that
+    session's dispatches carried (subagent_type, description, run_in_background, prompt).
+    A dispatch comes from the main thread, so like audit row 61 it carries no agent_id.
+    """
+    transcript = transcript_with("process my 1:1 transcript with Kaed, and prep me for Kaed")
+
+    def payload(agent: str) -> dict:
+        return {"session_id": "acceptance-inactive", "transcript_path": transcript, "cwd": str(ROOT),
+                "permission_mode": "default", "hook_event_name": "PreToolUse", "tool_name": "Agent",
+                "tool_input": {"subagent_type": agent, "description": f"{agent} acceptance dispatch",
+                               "run_in_background": False, "prompt": f"OBJECTIVE: {agent} acceptance dispatch"},
+                "tool_use_id": f"toolu_acceptance_{agent}"}
+
+    try:
+        refused = {}
+        for agent in NOT_SWITCHED_ON:
+            refused[agent] = run_hook("require-active-agent.py", payload(agent))
+            ev.cmd(f"hook require-active-agent: Agent {agent}", refused[agent])
+        controls = {agent: run_hook("require-active-agent.py", payload(agent)) for agent in ("reed", "lark", "Explore")}
+        for agent, result in controls.items():
+            ev.cmd(f"hook require-active-agent: Agent {agent}   (control)", result)
+        banner_milo = run_hook("announce-dispatch.py", payload("milo"))
+        banner_reed = run_hook("announce-dispatch.py", payload("reed"))
+        ev.cmd("hook announce-dispatch: Agent milo   (no banner for a refused dispatch)", banner_milo)
+        ev.cmd("hook announce-dispatch: Agent reed   (control)", banner_reed)
+    finally:
+        os.unlink(transcript)
+    relay = sh("scripts/team.py", "--agent", "MILO")
+    ev.cmd("team.py --agent MILO   (what the orchestrator relays without dispatching)", relay)
+    audit = rows("SELECT decision, rule_id FROM audit WHERE hook = 'require-active-agent'"
+                 " AND session_id = 'acceptance-inactive' ORDER BY id")
+    ev.add(f"- audit rows: `{audit}`")
+    exact = {agent: refused[agent].code == 2 and refused[agent].err == "\n".join(lines) + "\n"
+             for agent, lines in NOT_SWITCHED_ON.items()}
+    ev.add(f"- refusal printed exactly the two lines: `{exact}`")
+    ok = (all(exact.values()) and controls["reed"].code == 0 and not controls["reed"].err.strip()
+          and controls["lark"].code == 0 and controls["Explore"].code == 2 and "NOT ON THIS TEAM" in controls["Explore"].err
+          and not banner_milo.out.strip() and ">> REED dispatched" in banner_reed.out
+          and relay.code == 0 and relay.out == "\n".join(NOT_SWITCHED_ON["milo"]) + "\n"
+          and [a["decision"] for a in audit] == ["deny", "deny", "deny", "allow", "allow", "deny"])
+    return {"ok": ok, "summary": "MILO, PENN and TALLY refused by the real hook with exactly the lines FOR-TAYLOR "
+                                 "quotes, nothing else printed; REED and LARK allowed, Explore refused; no dispatch "
+                                 "banner for a refused agent; team.py relays the same lines; six audit rows"}
+
+
 def checkbox_experiment(ev: Evidence) -> str:
     chk = doc_of("Checkbox experiment")
     probe = sh("scripts/docs_read.py", "--doc", chk["doc_id"], "--checkbox-probe")
@@ -829,7 +1075,8 @@ def main() -> int:
         ev, results[name] = run_leg(fn)
         sections.append((name, ev, results[name]))
     for name, fn in (("P1.4", lambda ev: p14(ev, results["P1.2"].get("a_ref", "A-0001"))), ("P1.5", p15),
-                     ("P1.6", p16), ("G1", g1), ("G4", g4), ("G5", g5)):
+                     ("P1.6", p16), ("G1", g1), ("G4", g4), ("G5", g5),
+                     ("SAGE", sage), ("LARK prep", lark_prep), ("Inactive dispatch", inactive_dispatch)):
         ev, results[name] = run_leg(fn)
         sections.append((name, ev, results[name]))
     probe_ev = Evidence()
@@ -845,6 +1092,9 @@ def main() -> int:
         "G1": "the orchestrator answering 'remove the reservation send approval' with a DEVIATIONS.md proposal",
         "G4": "the orchestrator telling Taylor 'not updated' in his terms",
         "G5": "the orchestrator asking which person was meant",
+        "SAGE": "SAGE's own judgement on a live flagged proposal, and the orchestrator's one-line relay of a hold",
+        "LARK prep": "LARK presenting only Taylor's part of a live 'prep me for Kaed', the rest on request",
+        "Inactive dispatch": "the orchestrator relaying the lines without dispatching, in a live VS Code session",
     }
     lines = [
         f"# Phase 1 acceptance, {args.date}",
@@ -867,10 +1117,13 @@ def main() -> int:
         lines.append(f"| {name} | {verdict(r)} | Blocked: {session[name]} | {r['summary']} |")
     lines.append("| G2 | Blocked | Blocked | Out of Phase 1 scope: preference learning needs the Phase 3 and 5 draft workflows. |")
     lines.append("| G3 | Blocked | Blocked | Out of Phase 1 scope: private transcripts are Phase 2 (Wispr). |")
-    for name in ("G4", "G5"):
+    for name in ("G4", "G5", "SAGE", "LARK prep", "Inactive dispatch"):
         r = results[name]
         lines.append(f"| {name} | {verdict(r)} | Blocked: {session[name]} | {r['summary']} |")
-    lines += ["", "## Fixture Docs (Mike's Drive, registered fixture=1 in state/fixtures.db)", "",
+    lines += ["", "SAGE, LARK prep and Inactive dispatch are the roster expansion's legs: blueprint s.2 enforced on",
+              "every Doc proposal, LARK's read-only prep under deviation D-3, and the switched-off agents refused",
+              "before they start. They are not blueprint test ids.",
+              "", "## Fixture Docs (Mike's Drive, registered fixture=1 in state/fixtures.db)", "",
               "| Role | Person | Doc id | Title |", "| --- | --- | --- | --- |"]
     lines += [f"| {f['role']} | {f['key'] or '-'} | `{f['doc_id']}` | {f['title']} |" for f in fixtures]
     if setup.lines:
@@ -907,8 +1160,9 @@ def main() -> int:
     out.write_bytes(text.encode("utf-8"))
     failed = [n for n, r in results.items() if not r["ok"]]
     print(f"wrote {out.relative_to(ROOT)}")
-    for name in ("P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P1.6", "G1", "G4", "G5"):
-        print(f"  {name:5} {verdict(results[name]):7}  {results[name]['summary'][:110]}")
+    for name in ("P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P1.6", "G1", "G4", "G5",
+                 "SAGE", "LARK prep", "Inactive dispatch"):
+        print(f"  {name:17} {verdict(results[name]):7}  {results[name]['summary'][:110]}")
     print(f"  guardrails exit {guard.code}, mutation exit {mutation.code}, register self-test exit "
           f"{register_test.code}, unit tests exit {units.returncode}, contracts exit {contracts.code}, "
           f"vendored exit {vendored.code}")

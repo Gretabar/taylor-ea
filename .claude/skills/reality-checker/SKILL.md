@@ -25,7 +25,9 @@ Terse: 6 to 10 lines. A gate, not a planner. Cite the file behind a flag.
    Moreen. A relative date said on that same weekday is ambiguous (`register.py resolve-date`).
 2. **Over-build.** Does the scope exceed the request? Phase 1 is the register and the six running
    Docs. Email, transcripts, the daily email brief, calendar changes, projects and reservations
-   are later phases (blueprint section 11, "Build sequence"). Flag, do not improvise.
+   are later phases (blueprint section 11, "Build sequence"). Flag, do not improvise. If the
+   request belongs to an agent that is not switched on, `python scripts/team.py --agent <NAME>`
+   prints the two lines to relay; never dispatch it.
 3. **Existing record.** Is it already captured? `python scripts/register.py owed`,
    `python scripts/register.py topics --person <key>`. A replayed `/add` returns the existing ref
    by itself; a reworded one may not, so look.

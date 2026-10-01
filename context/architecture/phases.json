@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "about": [
+    "Taylor's phase gate, the half of 'is this agent switched on' that is his to decide.",
+    "Blueprint s.11: each phase is approved by Taylor before it is built. An agent runs only",
+    "when its phase is approved HERE and Mike has built and accepted it (build_record in",
+    "context/roster-agents.json). scripts/team.py combines the two; the dispatch gate",
+    "(.claude/hooks/require-active-agent.py), the doctor and the contract validator all read it.",
+    "",
+    "PROTECTED. This file is under context/architecture/, so protect-architecture.py lets it",
+    "change only when Taylor's own latest message says the approval phrase in CLAUDE.md. Then",
+    "the orchestrator sets approved to true and approved_at to the date and time, and appends",
+    "one CHANGE-LOG.md bullet in the same turn. 'resume Phase 6' also sets deferred to false.",
+    "",
+    "An unreadable or malformed file switches nothing on: team.py raises and the gate refuses."
+  ],
+  "phases": {
+    "1": {
+      "name": "People and management actions",
+      "approved": true,
+      "approved_at": null,
+      "basis": "Counted as approved and built for this build (Mike, 2026-10-01). Taylor's written answers on D-1 and D-2 are recorded separately, and D-1 still gates every write to a live Doc."
+    },
+    "2": {"name": "Meeting capture and processing", "approved": false, "approved_at": null},
+    "3": {"name": "Daily brief and email control", "approved": false, "approved_at": null},
+    "4": {"name": "Projects and company knowledge", "approved": false, "approved_at": null},
+    "5": {"name": "Reservation email", "approved": false, "approved_at": null},
+    "6": {"name": "Executive reporting", "approved": false, "approved_at": null, "deferred": true},
+    "7": {"name": "Calendar and executive assistance", "approved": false, "approved_at": null}
+  }
+}

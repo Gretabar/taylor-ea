@@ -29,6 +29,19 @@
           {
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-delivery-agent.py\""
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-privacy-agent.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task|Workflow|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-active-agent.py\""
           }
         ]
       },

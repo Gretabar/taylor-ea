@@ -12,7 +12,11 @@
     "`gates` names what stays switched off until the deviation is approved.",
     "scripts/docs_edit.py refuses every write to a live (non-fixture) Doc while any",
     "deviation gating `live_doc_writes` is not `approved`. An unreadable file is read",
-    "as nothing approved."
+    "as nothing approved.",
+    "",
+    "`in_effect_while_proposed: true` is the opposite case: Mike switched the change on",
+    "while Taylor decides, and rejecting it switches it off. scripts/team.py reads it for",
+    "an agent whose `via` names the deviation (LARK under D-3)."
   ],
   "deviations": {
     "D-1": {
@@ -36,6 +40,40 @@
       "approved_at": null,
       "gates": [],
       "memo": "docs/DEVIATIONS.md, D-2"
+    },
+    "D-3": {
+      "title": "LARK prepares Taylor for a 1:1 now, read only, ahead of Phase 7",
+      "affects": "blueprint s.10, Preparation and intelligence ('Prep me for Kaed'), and P3.7; its read-only part only",
+      "requirement_type": "behaviour ahead of its phase, not a change to a protected requirement",
+      "decider": "Taylor",
+      "status": "proposed",
+      "approved_by": null,
+      "approved_at": null,
+      "in_effect_while_proposed": true,
+      "gates": [],
+      "memo": "docs/DEVIATIONS.md, D-3"
+    },
+    "D-4": {
+      "title": "PENN, a sales and events pipeline agent, outside the blueprint",
+      "affects": "the architecture itself: a lane none of the seven phases has",
+      "requirement_type": "architecture change",
+      "decider": "Taylor",
+      "status": "proposed",
+      "approved_by": null,
+      "approved_at": null,
+      "gates": ["agent PENN"],
+      "memo": "docs/DEVIATIONS.md, D-4"
+    },
+    "D-5": {
+      "title": "TALLY is defined while Phase 6 stays deferred",
+      "affects": "blueprint s.9, Protected deferral; nothing is built and nothing prompts",
+      "requirement_type": "a definition only, under a protected deferral",
+      "decider": "Taylor",
+      "status": "proposed",
+      "approved_by": null,
+      "approved_at": null,
+      "gates": [],
+      "memo": "docs/DEVIATIONS.md, D-5"
     }
   }
 }

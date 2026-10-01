@@ -12,7 +12,9 @@ THE ORDER IS THE DESIGN.
      deviation D-1 approved by Taylor (context/architecture/deviations.json) and a
      section map he confirmed. The proposal file must hash to the row PAGE wrote
      (WREN delivers PAGE's bytes, never its own). Doc-bound text passes the content
-     rules. An item already in the Doc is not placed twice.
+     rules. A proposal the privacy screen flags (blueprint s.2) needs SAGE's approval
+     of exactly these bytes: the newest privacy_reviews row for the proposal's sha256
+     must say approve. An item already in the Doc is not placed twice.
   2. READ FRESH. documents.get, and refuse if it carries no revisionId: revisionId
      is returned only to editors, and writing without writeControl would be writing
      blind. Indices are recomputed from this read; the proposal's are never trusted.
@@ -65,6 +67,7 @@ sys.path.insert(0, str(HERE.parent / ".claude" / "hooks"))
 import approvals  # noqa: E402
 import docs_read  # noqa: E402
 import ea_db  # noqa: E402
+import privacy_screen  # noqa: E402
 import register  # noqa: E402
 import validate_content_rules  # noqa: E402
 
@@ -177,6 +180,26 @@ def check_proposal(conn, path: Path, kind: str, doc_arg: str | None) -> dict:
     proposal["_index_id"] = index["id"]
     proposal["_sha256"] = digest
     return proposal
+
+
+def check_privacy(conn, proposal: dict) -> None:
+    """Refuse a flagged proposal unless SAGE's newest verdict on these exact bytes is approve.
+
+    The flag is the proposal's own field OR the screen re-run on its words, so a
+    proposal written before the screen existed, or with the field removed, is not
+    waved through. The stamp is looked up by the sha256 check_proposal just
+    recomputed, so an approval of different words does not count.
+    """
+    required, category = privacy_screen.review_required(proposal)
+    if not required:
+        return
+    stamp = conn.execute("SELECT verdict, reason, reviewer FROM privacy_reviews WHERE proposal_sha256 = ?"
+                         " ORDER BY id DESC LIMIT 1", (proposal["_sha256"],)).fetchone()
+    if stamp is None:
+        raise Refused(f"this proposal is flagged for a privacy review ({category}) and SAGE has not reviewed it. "
+                      f"SAGE runs scripts/privacy_review.py --approve or --hold on it first (blueprint section 2).")
+    if stamp["verdict"] != "approve" or stamp["reviewer"] != "SAGE":
+        raise Refused(f"SAGE is holding this proposal ({category}): {stamp['reason']}")
 
 
 # ---------------------------------------------------------------------------
@@ -607,6 +630,7 @@ def apply(kind: str, proposal_path: Path, *, doc_arg: str | None, simulate_stale
             raise Refused(str(exc)) from exc
         proposal = check_proposal(conn, proposal_path, kind, doc_arg)
         outcome["doc_id"] = proposal["doc_id"]
+        check_privacy(conn, proposal)
         doc = check_allowlist(conn, proposal["doc_id"], fixture_mode=ea_db.fixture_mode(),
                               deviations=load_deviations())
         smap = json.loads(doc["section_map_json"] or "{}")

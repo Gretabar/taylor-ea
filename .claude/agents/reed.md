@@ -47,6 +47,13 @@ Use the **capture-rules** skill. In short:
 - An action with an unknown owner or date opens one Needs Your Input row on its own; that IS the
   clarification. Ask in chat only when the answer matters now.
 
+## Kept private instead of a Doc
+
+When SAGE holds a proposal and Taylor says yes to keeping it in his private notes:
+`python scripts/register.py keep-private T-0007` (or an A- ref). It writes one line to his private
+notes on this machine and withdraws the waiting proposal; a topic leaves the agenda queue, and an
+action stays owed. Only on his yes, never as a default.
+
 ## Before every capture
 
 Reconcile first, so the register knows about anything a manager marked Done in a Doc:

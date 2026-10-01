@@ -26,7 +26,16 @@ GATES COVERED (the plan's list, plus the ones that keep them honest):
   rollcall              the roll call's four outcomes: a read-only solo turn gets the
                         quiet line, a solo write gets the SOLO block, a dispatch gets
                         the TEAM line, an unreadable turn gets UNVERIFIED; the status
-                        line and docs/FOR-TAYLOR.md agree with it
+                        line and docs/FOR-TAYLOR.md agree with it; a dispatch a gate
+                        refused is not counted as one
+  active-agent          only a switched-on agent is dispatched; every switched-off one
+                        answers with exactly the lines docs/FOR-TAYLOR.md quotes;
+                        non-roster agents, workflows and the claude CLI are refused
+  privacy-screen        every personal-sensitivity category is flagged, and the
+                        near-misses ("manager bonus structure", "Christmas lights") pass
+  privacy-stamp         docs_edit.py refuses a flagged proposal without SAGE's approval
+                        of those exact bytes
+  privacy-agent         scripts/privacy_review.py runs only inside SAGE
 
 WHAT IS NOT COVERED, stated: this drives the pure decision function inside each
 gate. It does not prove Claude Code invokes the hook (wiring proves it is
@@ -550,6 +559,8 @@ def check_wiring(problems: list) -> int:
         ("validate_content_rules.py", ("Write", "Edit")),
         ("require-approval.py", ("Bash", "PowerShell", "mcp__")),
         ("announce-dispatch.py", ("Agent",)),
+        ("require-active-agent.py", ("Agent", "Task", "Workflow", "Bash", "PowerShell")),
+        ("require-privacy-agent.py", ("Bash", "PowerShell")),
     ]:
         matcher = matcher_for(filename)
         cases += expect(problems, "wiring", f"{filename} is wired", True, matcher is not None)
@@ -646,6 +657,23 @@ def _bash(command: str) -> list[dict]:
     return _tool("Bash", {"command": command})
 
 
+def _refused(name: str, tool_input, message: str, denial_kind: str | None = "permission-rule",
+             is_error: bool = True) -> list[dict]:
+    """A tool call that never ran, recorded the way a live VS Code session records it (v2.1.222)."""
+    call_id = f"toolu_{next(_CALL_IDS):04d}"
+    result = {"type": "user", "message": {"role": "user", "content": [
+        {"type": "tool_result", "tool_use_id": call_id, "is_error": is_error, "content": message}]}}
+    if denial_kind:
+        result["toolDenialKind"] = denial_kind
+    return [{"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": call_id, "name": name, "input": tool_input}]}}, result]
+
+
+MILO_REFUSAL = ('PreToolUse:Agent hook error: [python "$CLAUDE_PROJECT_DIR/.claude/hooks/require-active-agent.py"]: '
+                "NOT SWITCHED ON YET: MILO (meetings and transcripts), Phase 2.\n"
+                'To switch it on: say "architecture change ok: switch on Phase 2", and Mike builds it.')
+
+
 def _say(text: str) -> dict:
     return {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
 
@@ -705,6 +733,29 @@ def check_rollcall(problems: list) -> int:
          [*_command("owe"), '{"type": "assistant", "message": {"content": [{"type": "tool_u', _say("...")], "UNVERIF"),
         ("a broken line in an EARLIER turn does not taint this one -> quiet line",
          ['{"type": "assistant", "trunc', _say("earlier"), *owe], "QUIET"),
+        ("a dispatch the gate refused (MILO) is not a dispatch -> quiet line",
+         [*_command("NAME", "process my 1:1 transcript with Kaed"),
+          *_refused("Agent", {"subagent_type": "milo", "description": "process transcript",
+                              "run_in_background": False, "prompt": "process it"}, MILO_REFUSAL),
+          _say("NOT SWITCHED ON YET: MILO (meetings and transcripts), Phase 2.")], "QUIET"),
+        ("a refusal read from the hook's own message, with no toolDenialKind -> quiet line",
+         [_user("prep TALLY"), *_refused("Agent", {"subagent_type": "tally", "prompt": "x"},
+                                         "PreToolUse:Agent hook error: [x]: NOT SWITCHED ON", denial_kind=None),
+          _say("relayed")], "QUIET"),
+        ("an agent that ran and then failed is still a dispatch -> TEAM line",
+         [*_command("add", "Kaed: send Casey the bonus structure by Friday"),
+          *_tool("Agent", {"subagent_type": "reed", "prompt": "capture it"}),
+          *_tool("Agent", {"subagent_type": "page", "prompt": "propose it"}),
+          *_refused("Agent", {"subagent_type": "wren", "prompt": "deliver it"},
+                    "WREN stopped: the API returned 500", denial_kind=None),
+          _say("WREN failed.")], "TEAM"),
+        ("a Workflow nobody refused ran agents the roll call cannot see -> UNVERIFIED",
+         [_user("audit everything"), *_tool("Workflow", {"script": "export const meta = {}"}), _say("done")],
+         "UNVERIF"),
+        ("a Workflow the gate refused ran nothing -> quiet line",
+         [_user("audit everything"), *_refused("Workflow", {"script": "export const meta = {}"},
+                                               "PreToolUse:Workflow hook error: [x]: NOT USED HERE"),
+          _say("Not used here.")], "QUIET"),
     ]
     missing = str(Path(tempfile.gettempdir()) / "ea-guardrails-no-such-transcript.jsonl")
     written = []
@@ -748,6 +799,15 @@ def check_rollcall(problems: list) -> int:
         ("the register imported inline", 'python -c "import register; register.add_action(None)"', "write"),
         ("a SQL delete against the register", "sqlite3 state/ea.db \"DELETE FROM actions WHERE ref='A-0013'\"", "write"),
         ("an env prefix in front of add-action", "EA_FIXTURE_MODE=1 python scripts/register.py complete A-1 --via chat", "write"),
+        ("privacy_review.py --approve (SAGE's stamp)",
+         'python scripts/privacy_review.py --approve state/proposals/p.json --reason "work relevant"', "write"),
+        ("privacy_review.py --hold through PowerShell",
+         '& python scripts\\privacy_review.py --hold state\\proposals\\p.json --reason "stays private"', "write"),
+        ("privacy_review imported inline", 'python -c "import privacy_review"', "write"),
+        ("register.py keep-private (Taylor's private notes)", "python scripts/register.py keep-private T-0007", "write"),
+        ("prep.py (LARK's read-only prep)", "python scripts/prep.py --person Kaed --deep", "read"),
+        ("team.py --agent (what a switched-off agent answers)", "python scripts/team.py --agent MILO", "read"),
+        ("privacy_screen.py --text (a wording check)", 'python scripts/privacy_screen.py --text "Kaed raise"', "read"),
         ("register.py owed", "python scripts/register.py owed --person casey", "read"),
         ("register.py owed history", "python scripts/register.py owed history A-0012", "read"),
         ("register.py history", "python scripts/register.py history A-0012", "read"),
@@ -769,6 +829,17 @@ def check_rollcall(problems: list) -> int:
         got = "write" if _activity.shell_writes(command) else "read"
         cases += expect_equal(problems, "rollcall", f"{want}: {label}", want, got)
 
+    # A refused dispatch beside a real one: the TEAM line names only the agent that ran.
+    mixed = _transcript([_user("capture it, and process the transcript"),
+                         *_tool("Agent", {"subagent_type": "reed", "prompt": "capture it"}),
+                         *_refused("Agent", {"subagent_type": "milo", "prompt": "process it"}, MILO_REFUSAL),
+                         _say("REED captured it; MILO is not switched on.")])
+    try:
+        cases += expect_equal(problems, "rollcall", "a refused MILO beside a dispatched REED: the TEAM line names REED only",
+                              "TEAM  |  REED  (1 dispatched)", hook.team_block(mixed))
+    finally:
+        os.unlink(mixed)
+
     # Taylor's guide quotes the roll call. If either side changes alone, he is told to
     # look for a line that never appears.
     guide = (REPO_ROOT / "docs" / "FOR-TAYLOR.md").read_bytes().decode("utf-8")
@@ -776,6 +847,279 @@ def check_rollcall(problems: list) -> int:
                           True, hook.READ_ONLY_LINE in guide)
     cases += expect_equal(problems, "rollcall", "docs/FOR-TAYLOR.md quotes the SOLO heading word for word",
                           True, hook.SOLO.splitlines()[1] in guide)
+    return cases
+
+
+# --------------------------------------------------------------------------
+# active-agent (require-active-agent.py, with scripts/team.py)
+# --------------------------------------------------------------------------
+
+# The spec, as Mike's brief wrote it and docs/FOR-TAYLOR.md quotes it. Hardcoded here
+# on purpose: compared against what team.py renders, so a drift on either side is red.
+SWITCH_ON_SPEC = {
+    "MILO, not switched on": (
+        "NOT SWITCHED ON YET: MILO (meetings and transcripts), Phase 2.",
+        'To switch it on: say "architecture change ok: switch on Phase 2", and Mike builds it.'),
+    "MILO, approved and not built": (
+        "APPROVED, NOT BUILT YET: MILO (meetings and transcripts), Phase 2.",
+        "Mike is building it; nothing to do on your side."),
+    "PENN": (
+        "NOT SWITCHED ON: PENN (sales and events pipeline) is outside your architecture.",
+        'To switch it on: say "architecture change ok: add PENN", then Mike builds it.'),
+    "TALLY": (
+        "NOT SWITCHED ON: TALLY (reporting) is Phase 6, which you deferred.",
+        'To switch it on: say "architecture change ok: resume Phase 6", then Mike builds it.'),
+}
+SAME_TEMPLATE = {"RUTH": ("professional documentation", 2), "ATLAS": ("projects and company knowledge", 4),
+                 "CLEO": ("reservation replies", 5), "JUNE": ("calendar", 7)}
+
+
+def _team_variant(*, phases: dict | None = None, deviations: dict | None = None, builds: dict | None = None):
+    """The shipped team with some of Taylor's or Mike's switches flipped, in memory only."""
+    import team
+
+    roster = json.loads((REPO_ROOT / "context" / "roster-agents.json").read_bytes().decode("utf-8"))
+    phase_file = json.loads((REPO_ROOT / "context" / "architecture" / "phases.json").read_bytes().decode("utf-8"))
+    deviation_file = json.loads((REPO_ROOT / "context" / "architecture" / "deviations.json").read_bytes().decode("utf-8"))
+    for key, change in (phases or {}).items():
+        phase_file["phases"][key] = {**phase_file["phases"][key], **change}
+    for key, change in (deviations or {}).items():
+        deviation_file["deviations"][key] = {**deviation_file["deviations"][key], **change}
+    roster["build_record"] = {**roster.get("build_record", {}), **(builds or {})}
+    return team.Team(roster, phase_file, deviation_file)
+
+
+def check_active_agent(problems: list) -> int:
+    hook = load_hook("require-active-agent.py")
+    import team
+
+    cases = 0
+    shipped = team.load(REPO_ROOT)
+
+    def lines_for(tool: str, given: dict, which=shipped) -> tuple:
+        return tuple(hook.decide(tool, given, which)[2])
+
+    # The exact words, from the team as shipped and with Taylor's approval flipped.
+    approved = _team_variant(phases={"2": {"approved": True}})
+    for label, tool, given, which, want in [
+        ("MILO", "Agent", {"subagent_type": "milo"}, shipped, SWITCH_ON_SPEC["MILO, not switched on"]),
+        ("MILO, approved and not built", "Agent", {"subagent_type": "milo"}, approved,
+         SWITCH_ON_SPEC["MILO, approved and not built"]),
+        ("PENN", "Agent", {"subagent_type": "penn"}, shipped, SWITCH_ON_SPEC["PENN"]),
+        ("TALLY", "Agent", {"subagent_type": "tally"}, shipped, SWITCH_ON_SPEC["TALLY"]),
+    ] + [(name, "Agent", {"subagent_type": name.lower()}, shipped,
+          (f"NOT SWITCHED ON YET: {name} ({lane}), Phase {phase}.",
+           f'To switch it on: say "architecture change ok: switch on Phase {phase}", and Mike builds it.'))
+         for name, (lane, phase) in SAME_TEMPLATE.items()]:
+        cases += expect_equal(problems, "active-agent", f"exact text: {label}", want, lines_for(tool, given, which))
+
+    # Who is refused, and who goes through, on the team as shipped.
+    for label, tool, given, want_block in [
+        ("block: MILO, Phase 2 not switched on", "Agent", {"subagent_type": "milo", "run_in_background": False}, True),
+        ("block: RUTH", "Agent", {"subagent_type": "ruth"}, True),
+        ("block: ATLAS", "Agent", {"subagent_type": "atlas"}, True),
+        ("block: CLEO", "Agent", {"subagent_type": "cleo"}, True),
+        ("block: JUNE", "Agent", {"subagent_type": "june"}, True),
+        ("block: PENN, outside the blueprint", "Agent", {"subagent_type": "penn"}, True),
+        ("block: TALLY, Phase 6 deferred", "Agent", {"subagent_type": "tally"}, True),
+        ("block: a plugin-qualified switched-off agent", "Agent", {"subagent_type": "ea:milo"}, True),
+        ("block: the older tool name Task", "Task", {"subagent_type": "milo"}, True),
+        ("block: Explore, not on this team", "Agent", {"subagent_type": "Explore"}, True),
+        ("block: general-purpose, not on this team", "Agent", {"subagent_type": "general-purpose"}, True),
+        ("block: no subagent_type at all", "Agent", {"prompt": "do it"}, True),
+        ("block: a fork", "Agent", {"subagent_type": "fork"}, True),
+        ("block: a Workflow", "Workflow", {"name": "deep-research"}, True),
+        ("block: claude -p from Bash", "Bash", {"command": 'claude -p "summarise the transcript"'}, True),
+        ("block: claude --agent milo from PowerShell", "PowerShell", {"command": "& claude.exe --agent milo -p x"}, True),
+        ("block: claude --agent reed is still a hidden session", "Bash", {"command": "claude --agent reed -p hi"}, True),
+        ("block: claude inside powershell -Command", "Bash", {"command": 'powershell -Command "claude --agent tally"'}, True),
+        ("block: npx claude-code --print", "Bash", {"command": "npx @anthropic-ai/claude-code --print hi"}, True),
+        ("pass: REED", "Agent", {"subagent_type": "reed"}, False),
+        ("pass: PAGE", "Agent", {"subagent_type": "page"}, False),
+        ("pass: WREN", "Agent", {"subagent_type": "wren"}, False),
+        ("pass: HUGO", "Agent", {"subagent_type": "hugo"}, False),
+        ("pass: SAGE", "Agent", {"subagent_type": "sage"}, False),
+        ("pass: LARK, on via D-3", "Agent", {"subagent_type": "lark"}, False),
+        ("pass: claude --version is not a dispatch", "Bash", {"command": "claude --version"}, False),
+        ("pass: grep for claude -p is not a dispatch", "Bash", {"command": "grep -n 'claude -p' docs/x.md"}, False),
+        ("pass: echo of a claude command", "PowerShell", {"command": "echo claude --agent milo"}, False),
+        ("pass: an ordinary script", "Bash", {"command": "python scripts/register.py owed"}, False),
+        ("pass: a Write is not a dispatch", "Write", {"file_path": "x"}, False),
+    ]:
+        allowed, rule, _ = hook.decide(tool, given, shipped)
+        cases += expect(problems, "active-agent", label, want_block, not allowed, rule)
+    cases += expect_equal(problems, "active-agent", "a named switched-off agent from the CLI gets its own lines",
+                          SWITCH_ON_SPEC["TALLY"], lines_for("Bash", {"command": "claude --agent tally"}))
+
+    # The switches themselves: Taylor's approval and Mike's build, each alone and together.
+    for label, which, name, want_block in [
+        ("block: Taylor approved Phase 2 but Mike has not built it",
+         _team_variant(phases={"2": {"approved": True}}), "milo", True),
+        ("block: Mike built Phase 2 but Taylor has not approved it",
+         _team_variant(builds={"phase 2": {"accepted": "2026-11-01"}}), "milo", True),
+        ("pass: Phase 2 approved and built", _team_variant(
+            phases={"2": {"approved": True}}, builds={"phase 2": {"accepted": "2026-11-01"}}), "milo", False),
+        ("block: LARK once Taylor rejects D-3", _team_variant(deviations={"D-3": {"status": "rejected"}}),
+         "lark", True),
+        ("pass: LARK once Taylor approves D-3", _team_variant(deviations={"D-3": {"status": "approved"}}),
+         "lark", False),
+        ("block: PENN added by Taylor, not built yet", _team_variant(deviations={"D-4": {"status": "approved"}}),
+         "penn", True),
+        ("pass: TALLY once Phase 6 is resumed and built", _team_variant(
+            phases={"6": {"approved": True, "deferred": False}},
+            builds={"phase 6": {"accepted": "2026-11-01"}}), "tally", False),
+    ]:
+        allowed, rule, _ = hook.decide("Agent", {"subagent_type": name}, which)
+        cases += expect(problems, "active-agent", label, want_block, not allowed, rule)
+
+    # Unreadable is never "off": a broken team file is an exception the hook turns into a refusal.
+    for label, roster, phases in [
+        ("a roster with no agents", {"agents": []}, {"phases": {str(n): {"approved": False} for n in range(1, 8)}}),
+        ("a phase gate missing Phase 7", {"agents": [{"name": "REED", "phase": 1, "lane": "x"}]},
+         {"phases": {str(n): {"approved": False} for n in range(1, 7)}}),
+        ("an approval that is not true or false", {"agents": [{"name": "REED", "phase": 1, "lane": "x"}]},
+         {"phases": {**{str(n): {"approved": False} for n in range(1, 8)}, "1": {"approved": "yes"}}}),
+    ]:
+        try:
+            team.Team(roster, phases, {"deviations": {}})
+            raised = False
+        except team.TeamUnreadable:
+            raised = True
+        cases += expect(problems, "active-agent", f"block: {label} is unreadable, never read as off", True, raised)
+
+    # Taylor's guide quotes the lines. If either side changes alone, he is told to expect
+    # words he will never see.
+    guide = (REPO_ROOT / "docs" / "FOR-TAYLOR.md").read_bytes().decode("utf-8")
+    for label, lines in SWITCH_ON_SPEC.items():
+        for i, line in enumerate(lines, 1):
+            cases += expect_equal(problems, "active-agent",
+                                  f"docs/FOR-TAYLOR.md quotes {label}, line {i}, word for word", True, line in guide)
+    return cases
+
+
+# --------------------------------------------------------------------------
+# privacy-screen, privacy-stamp, privacy-agent (SAGE)
+# --------------------------------------------------------------------------
+
+def check_privacy_screen(problems: list) -> int:
+    import privacy_screen
+
+    cases = 0
+    for label, text, want in [
+        ("block: health", "Shift swap to cover a medical appointment", "health"),
+        ("block: family", "Family matter Kaed raised after the meeting", "family"),
+        ("block: mental health", "Signs of burnout on the closing shift", "mental health"),
+        ("block: addiction", "Possible substance abuse concern", "addiction"),
+        ("block: leave of absence", "Return-to-work plan after medical leave", "leave of absence"),
+        ("block: discipline", "Written warning for the cash shortage", "discipline"),
+        ("block: harassment or complaint", "Harassment complaint from a server", "harassment or complaint"),
+        ("block: legal or immigration", "Work permit renewal", "legal or immigration"),
+        ("block: one person's pay", "Kaed's raise", "individual pay"),
+        ("block: a raise for a named person", "Raise for Casey", "individual pay"),
+        ("pass: manager bonus structure", "manager bonus structure", None),
+        ("pass: manager accountability", "Manager accountability", None),
+        ("pass: leadership-structure feedback", "leadership-structure feedback", None),
+        ("pass: Christmas lights", "Need to organize Christmas lights", None),
+        ("pass: holiday party bookings", "holiday party bookings", None),
+        ("pass: the health inspection", "Prep for the health inspection", None),
+        ("pass: a guest complaint", "Guest complaint about the wait", None),
+        ("pass: family meal", "Family meal at 4", None),
+        ("pass: raise prices", "Raise prices on the patio", None),
+        ("pass: a structure-level bonus", "Casey's bonus structure", None),
+    ]:
+        flag = privacy_screen.screen(text)
+        cases += expect(problems, "privacy-screen", label, want is not None, flag is not None,
+                        f"matched {flag.matched!r}" if flag else "")
+        if want and flag:
+            cases += expect_equal(problems, "privacy-screen", f"{label} (category)", want, flag.category)
+    # Only the words the proposal would write are screened, and the field is not trusted alone.
+    for label, proposal, want_block in [
+        ("block: a flagged action title", {"cells": {"title": "Kaed's raise [A-0001]", "assignee": "Taylor"}}, True),
+        ("block: the field says required", {"text": "anything", "privacy_review": "required"}, True),
+        ("block: the field says not_required, the words say otherwise",
+         {"text": "Kaed's medical leave", "privacy_review": "not_required"}, True),
+        ("pass: a clean topic", {"text": "Christmas lights for the patio"}, False),
+        ("pass: a completion writes only Done and a date", {"status_text": "Done 2026-10-01"}, False),
+    ]:
+        cases += expect(problems, "privacy-screen", label, want_block, privacy_screen.review_required(proposal)[0])
+    return cases
+
+
+def check_privacy_stamp(problems: list) -> int:
+    import docs_edit
+    import ea_db
+
+    cases = 0
+    flagged = {"kind": "add-topic", "text": "Shift swap to cover a medical appointment", "item_ref": "T-0001",
+               "privacy_review": "required", "privacy_category": "health", "_sha256": "a" * 64}
+    clean = {"kind": "add-topic", "text": "Christmas lights for the patio", "item_ref": "T-0002",
+             "privacy_review": "not_required", "_sha256": "b" * 64}
+    mislabelled = {**flagged, "privacy_review": "not_required", "_sha256": "c" * 64}
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = ea_db.connect(Path(tmp) / "stamp.db")
+        try:
+            ea_db.migrate(conn)
+
+            def stamp(sha: str, verdict: str, reviewer: str = "SAGE") -> None:
+                with conn:
+                    conn.execute("INSERT INTO privacy_reviews (proposal_path, proposal_sha256, item_ref, verdict,"
+                                 " category, reason, reviewer, ts) VALUES ('p', ?, 'T-0001', ?, 'health', 'r', ?, ?)",
+                                 (sha, verdict, reviewer, ea_db.now_iso()))
+
+            def refused(proposal: dict) -> tuple[bool, str]:
+                try:
+                    docs_edit.check_privacy(conn, proposal)
+                    return False, ""
+                except docs_edit.Refused as exc:
+                    return True, str(exc)[:100]
+
+            for label, setup, proposal, want_block in [
+                ("block: a flagged proposal SAGE never reviewed", None, flagged, True),
+                ("pass: a clean proposal needs no stamp at all", None, clean, False),
+                ("block: a proposal labelled not_required whose words are flagged", None, mislabelled, True),
+                ("block: SAGE approved different words (another sha256)", ("d" * 64, "approve"), flagged, True),
+                ("block: a stamp recorded by someone other than SAGE", ("a" * 64, "approve", "WREN"), flagged, True),
+                ("block: SAGE is holding it", ("a" * 64, "hold"), flagged, True),
+                ("pass: SAGE approved these exact bytes", ("a" * 64, "approve"), flagged, False),
+                ("block: a hold after the approval wins (newest stamp)", ("a" * 64, "hold"), flagged, True),
+                ("pass: an approval after the hold wins (newest stamp)", ("a" * 64, "approve"), flagged, False),
+            ]:
+                if setup:
+                    stamp(*setup)
+                blocked, why = refused(proposal)
+                cases += expect(problems, "privacy-stamp", label, want_block, blocked, why)
+        finally:
+            conn.close()
+    return cases
+
+
+def check_privacy_agent(problems: list) -> int:
+    hook = load_hook("require-privacy-agent.py")
+    cases = 0
+    review = 'python scripts/privacy_review.py --approve state/proposals/x.json --reason "work relevant"'
+    for label, command, caller, want_block in [
+        ("block: WREN runs the reviewer", review, "WREN", True),
+        ("block: PAGE approves its own proposal", review, "PAGE", True),
+        ("block: REED", review, "REED", True),
+        ("block: the orchestrator on the main thread", review, "MAIN", True),
+        ("block: a subagent the payload does not identify", review, None, True),
+        ("block: HUGO through PowerShell with a full interpreter path",
+         "& C:\\Python311\\python.exe scripts\\privacy_review.py --hold x.json --reason r", "HUGO", True),
+        ("block: imported inline", 'python -c "import privacy_review"', "MAIN", True),
+        ("block: wrapped in powershell -Command", 'powershell -Command "python scripts/privacy_review.py --hold x"',
+         "MAIN", True),
+        ("pass: SAGE records a verdict", review, "SAGE", False),
+        ("pass: reading the script is not running it", "grep -n verdict scripts/privacy_review.py", "MAIN", False),
+        ("pass: the screen is a different script", 'python scripts/privacy_screen.py --text "x"', "PAGE", False),
+        ("pass: WREN's own writer is not this gate's business",
+         "python scripts/docs_edit.py add-topic --doc X --proposal p.json", "WREN", False),
+    ]:
+        allowed, rule = hook.decide(command, caller)
+        cases += expect(problems, "privacy-agent", label, want_block, not allowed, rule)
+    roster = json.loads((REPO_ROOT / "context" / "roster-agents.json").read_text(encoding="utf-8"))
+    privacy = [a["name"].upper() for a in roster["agents"] if a.get("privacy")]
+    cases += expect_equal(problems, "privacy-agent", "roster-agents.json and the hook name the same privacy agent",
+                          [hook.PRIVACY_AGENT], privacy)
     return cases
 
 
@@ -790,6 +1134,10 @@ CHECKS = {
     "wiring": check_wiring,
     "watchdog": check_watchdog,
     "rollcall": check_rollcall,
+    "active-agent": check_active_agent,
+    "privacy-screen": check_privacy_screen,
+    "privacy-stamp": check_privacy_stamp,
+    "privacy-agent": check_privacy_agent,
 }
 
 
@@ -828,6 +1176,12 @@ def _blind_to_unreadable(real):
         except _transcript.TranscriptUnreadable:
             return _transcript.TurnContext()
     return turn_context
+
+
+def _drifted_wording(name: str, lane: str, phase: int) -> tuple[str, str]:
+    """The switched-off lines with "then" where Taylor's docs say "and": a one-word drift."""
+    return (f"NOT SWITCHED ON YET: {name} ({lane}), Phase {phase}.",
+            f'To switch it on: say "architecture change ok: switch on Phase {phase}", then Mike builds it.')
 
 
 def _pre_port_typed(message: dict) -> tuple[bool, str]:
@@ -869,6 +1223,18 @@ MUTATIONS = [
     Mutation("rollcall", "ends a turn at a compaction summary", "module", "_transcript", "_is_real_user_turn",
              lambda real: (lambda event: True if event.get("isCompactSummary") else real(event)),
              must_fail="a compaction in the middle of a turn", wraps=True),
+    Mutation("rollcall", "counts a refused dispatch as a dispatch", "module", "_transcript", "_denied_ids",
+             lambda event: set(), must_fail="a dispatch the gate refused (MILO)"),
+    Mutation("active-agent", "forced to allow", "hook", "require-active-agent.py", "decide",
+             lambda *a, **k: (True, "mutated", ()), must_fail="block: MILO"),
+    Mutation("active-agent", "says 'then' where Taylor's docs say 'and'", "module", "team", "not_switched_on",
+             _drifted_wording, must_fail="exact text: MILO"),
+    Mutation("privacy-screen", "passes everything", "module", "privacy_screen", "screen", lambda text: None,
+             must_fail="block: health"),
+    Mutation("privacy-stamp", "forced to allow", "module", "docs_edit", "check_privacy", lambda *a, **k: None,
+             must_fail="block: a flagged proposal SAGE never reviewed"),
+    Mutation("privacy-agent", "forced to allow", "hook", "require-privacy-agent.py", "decide",
+             lambda *a, **k: (True, "mutated"), must_fail="block: WREN runs the reviewer"),
 ]
 
 

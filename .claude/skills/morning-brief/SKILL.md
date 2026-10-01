@@ -1,12 +1,14 @@
 ---
 name: morning-brief
-description: "The /morning screen: tick health first, then today's meetings, Taylor's actions due within 48 hours or overdue, Needs Your Input, Doc items that need a look, and yesterday's Doc writes. Owner: orchestrator. Ported from PIPER's morning-brief; chat only until Phase 3 makes it the 7am email."
+description: "The /morning screen: tick health first, then today's meetings, Taylor's actions due within 48 hours or overdue, Needs Your Input, Doc items that need a look, and yesterday's Doc writes. Owner: LARK. Ported from PIPER's morning-brief; chat only until Phase 3 makes it the 7am email."
 ---
 
 # Morning brief
 
-Owner: orchestrator. Ported from `C:\PIPER\skills\morning-brief\SKILL.md`: the tick-first order and
-the "an empty brief must still appear" rule are kept.
+Owner: LARK, whose lane the daily brief is. `/morning` itself runs on the main thread with no
+dispatch: a chat screen built from two scripts does not need an agent's time, and Taylor's seat has
+a spend cap. Ported from PIPER's morning-brief: the tick-first order and the "an empty brief must
+still appear" rule are kept.
 
 ## Run
 

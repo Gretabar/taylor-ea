@@ -28,8 +28,9 @@ python scripts/docs_edit.py update-due --doc <id> --proposal ...
 ```
 
 It refuses before writing anything if the Doc is not registered, if it is a live Doc and Taylor
-has not approved deviation D-1, if the proposal is not PAGE's exact bytes, or if Google returned no
-revisionId (this account cannot edit the Doc). It writes under writeControl, retries once if a
+has not approved deviation D-1, if the proposal is not PAGE's exact bytes, if the privacy screen
+flagged it and SAGE has not approved it (or is holding it), or if Google returned no revisionId
+(this account cannot edit the Doc). It writes under writeControl, retries once if a
 manager edited at the same moment, and then reads the Doc back.
 
 ## Report exactly what the script said
@@ -52,7 +53,8 @@ not a partial success; it is a failure that must be checked by hand.
 ## Refusals are answers
 
 Do not retry with different arguments, do not edit the proposal, and do not ask PAGE to target a
-different section to get past a refusal. Report it. If the same write fails twice for a technical
+different section to get past a refusal. Report it. A privacy refusal goes back to the orchestrator
+for SAGE; WREN never asks SAGE for a stamp itself. If the same write fails twice for a technical
 reason (token, network, 5xx), hand it to HUGO.
 
 ## Hand-offs

@@ -16,6 +16,12 @@ THE PROPOSAL RECORDS INTENT, NOT POSITIONS. Indices go stale the moment a manage
 types. docs_edit.py recomputes every index from a fresh read; the proposal carries
 the section, the exact text, and the revision it was based on, for the audit trail.
 
+EVERY PROPOSAL IS SCREENED FOR PERSONAL CONTEXT (blueprint s.2). The words it would
+write go through scripts/privacy_screen.py, and the verdict is recorded inside the
+proposal, so the sha256 covers it: `privacy_review: required` with the category and
+the matched words, or `not_required`. A required proposal goes to SAGE before WREN;
+docs_edit.py refuses it until SAGE has approved those exact bytes.
+
 This script only READS a Doc. It is deliberately a separate file from
 docs_edit.py so the WREN-only gate (require-delivery-agent.py) stays a simple
 whole-file rule: PAGE runs this, WREN runs that.
@@ -42,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import approvals  # noqa: E402
 import docs_read  # noqa: E402
 import ea_db  # noqa: E402
+import privacy_screen  # noqa: E402
 import register  # noqa: E402
 import validate_content_rules  # noqa: E402
 
@@ -153,7 +160,7 @@ def build(conn, kind: str, ref: str, *, doc_id: str | None, section: str | None,
     else:
         _check_text(text)
 
-    return {
+    proposal = {
         "ea-class": "records",
         "version": 1,
         "kind": kind,
@@ -172,6 +179,11 @@ def build(conn, kind: str, ref: str, *, doc_id: str | None, section: str | None,
         "created_at": ea_db.now_iso(),
         "created_by": "PAGE",
     }
+    flag = privacy_screen.screen_all(*privacy_screen.doc_bound_texts(proposal))
+    proposal["privacy_review"] = "required" if flag else "not_required"
+    proposal["privacy_category"] = flag.category if flag else None
+    proposal["privacy_matched"] = flag.matched if flag else None
+    return proposal
 
 
 def write(conn, proposal: dict) -> tuple[Path, str]:
@@ -226,11 +238,18 @@ def main() -> int:
         return 1
     finally:
         conn.close()
+    rel = path.relative_to(ea_db.REPO_ROOT).as_posix()
     print(preview(proposal))
-    print(f"proposal: {path.relative_to(ea_db.REPO_ROOT).as_posix()}")
+    print(f"proposal: {rel}")
     print(f"sha256:   {digest}")
+    if proposal["privacy_review"] == "required":
+        print(f"privacy_review: required ({proposal['privacy_category']}: {proposal['privacy_matched']!r})")
+        print(f"SAGE reviews it before WREN: python scripts/privacy_review.py --approve|--hold {rel} "
+              f"--reason \"<one sentence for Taylor>\"")
+    else:
+        print("privacy_review: not_required")
     print(f"WREN applies it with: python scripts/docs_edit.py {args.kind} --doc {proposal['doc_id']} "
-          f"--proposal {path.relative_to(ea_db.REPO_ROOT).as_posix()}")
+          f"--proposal {rel}")
     return 0
 
 

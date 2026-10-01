@@ -53,19 +53,27 @@ import sys
 
 import yaml
 
-def _load_roster() -> tuple[tuple[str, int], ...]:
-    """(NAME, phase) for every agent in context/roster-agents.json."""
+ROOT = os.environ.get("EA_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+
+import team  # noqa: E402
+
+
+def _load_roster() -> tuple[str, ...]:
+    """NAME of every agent in context/roster-agents.json."""
     import json  # noqa: PLC0415
 
-    root = os.environ.get("EA_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    with open(os.path.join(root, "context", "roster-agents.json"), encoding="utf-8") as fh:
+    with open(os.path.join(ROOT, "context", "roster-agents.json"), encoding="utf-8") as fh:
         data = json.load(fh)
-    return tuple((str(a["name"]).upper(), int(a.get("phase") or 0)) for a in data["agents"])
+    return tuple(str(a["name"]).upper() for a in data["agents"])
 
 
-ROSTER_PHASES = _load_roster()
-ROSTER = tuple(name for name, _ in ROSTER_PHASES)
+ROSTER = _load_roster()
 ORCHESTRATOR = "ORCHESTRATOR"
+
+# What an agent that is not switched on may hold. If a dispatch ever slipped past
+# require-active-agent.py, an agent with these tools can read and nothing else.
+READ_ONLY_TOOLS = frozenset({"Read", "Glob", "Grep"})
 
 # Signals in an agent's body that imply a tool it must hold in frontmatter.
 # Keyed by the required tool; each value is a list of regexes.
@@ -643,6 +651,48 @@ SELF_TEST_OWNERS: list[tuple[str, str, str, str | None]] = [
 ]
 
 
+def check_roster_files(agents: dict[str, tuple[dict, str]], roster_team) -> list[str]:
+    """Each roster agent's file against the roster and its standing (scripts/team.py).
+
+    The model in the frontmatter is the roster's model. An agent that is not switched
+    on holds only Read, Glob and Grep, the second layer behind the dispatch gate, and
+    its file quotes the two lines it answers with while nothing is approved for it.
+    Those dormant lines, not today's: on Taylor's machine a phase can be approved
+    before Mike has built it, and a code file there cannot change to match.
+    """
+    failures: list[str] = []
+    by_name = {os.path.basename(path)[:-3].upper(): (path, data, body) for path, (data, body) in agents.items()}
+    for name, agent in roster_team.agents.items():
+        if name not in by_name:
+            continue  # a missing file is reported by the caller, with the roster's wording
+        path, data, body = by_name[name]
+        want = str(agent.get("model") or "")
+        if want and str(data.get("model") or "") != want:
+            failures.append(f"{path}: model {data.get('model')!r}, but context/roster-agents.json says {want!r}")
+        status = roster_team.status(name)
+        if status is None or status.active:
+            continue
+        tools = data.get("tools")
+        extra = sorted(set(tools) - READ_ONLY_TOOLS) if isinstance(tools, list) else ["every tool (no tools: list)"]
+        if extra:
+            failures.append(f"{path}: {name} is not switched on but holds {', '.join(extra)}; an agent "
+                            f"that is off may hold only {', '.join(sorted(READ_ONLY_TOOLS))}")
+        for line in roster_team.dormant_lines(name):
+            if line not in body:
+                failures.append(f"{path}: {name} is not switched on, and its file does not quote the line "
+                                f"it must answer with: {line}")
+    return failures
+
+
+def _self_test_team():
+    """A two-agent team, fixed here, so the roster checks are proven without the repo's own files."""
+    phases = {"phases": {str(n): {"approved": n == 1} for n in range(1, 8)}}
+    roster = {"agents": [{"name": "REED", "phase": 1, "model": "opus", "lane": "Action Register"},
+                         {"name": "MILO", "phase": 2, "model": "opus", "lane": "meetings and transcripts"}],
+              "build_record": {"phase 1": {"accepted": "2026-10-01"}}}
+    return team.Team(roster, phases, {"deviations": {}})
+
+
 def self_test() -> int:
     """Prove every signal can still fail, and every documented suppression still suppresses."""
     problems: list[str] = []
@@ -673,12 +723,35 @@ def self_test() -> int:
         if got != expected:
             problems.append(f"{label}: resolved to {got}, expected {expected}")
 
+    # The roster checks. A switched-off agent that can act, or that does not know what
+    # to answer, is the case the dispatch gate's second layer exists for.
+    fixed = _self_test_team()
+    quoted = "\n".join(fixed.dormant_lines("MILO"))
+    roster_cases = [
+        ("a switched-off agent holding Bash is a failure", {"model": "opus", "tools": ["Read", "Bash"]}, quoted, "holds Bash"),
+        ("a switched-off agent with no tools: list inherits everything", {"model": "opus"}, quoted, "every tool"),
+        ("a switched-off agent that does not quote its lines is a failure",
+         {"model": "opus", "tools": ["Read"]}, "Not on yet.", "does not quote"),
+        ("a model that differs from the roster is a failure",
+         {"model": "sonnet", "tools": ["Read", "Grep", "Glob"]}, quoted, "model 'sonnet'"),
+        ("a switched-off agent done right passes", {"model": "opus", "tools": ["Read", "Grep", "Glob"]}, quoted, None),
+    ]
+    for label, frontmatter, body, expected in roster_cases:
+        found = check_roster_files({".claude/agents/milo.md": (frontmatter, body)}, fixed)
+        if expected is None and found:
+            problems.append(f"{label}: expected silence, got {found}")
+        elif expected is not None and not any(expected in f for f in found):
+            problems.append(f"{label}: expected a finding with {expected!r}, got {found or 'nothing'}")
+    found = check_roster_files({".claude/agents/reed.md": ({"model": "opus", "tools": ["Read", "Bash"]}, "")}, fixed)
+    if found:
+        problems.append(f"a switched-on agent may hold Bash: expected silence, got {found}")
+
     if problems:
         print(f"SELF-TEST FAIL -- {len(problems)} check(s) no longer behave as documented:\n")
         for problem in problems:
             print(f"  {problem}")
         return 1
-    cases = len(SELF_TEST_SIGNALS) + len(SELF_TEST_OWNERS) + 2
+    cases = len(SELF_TEST_SIGNALS) + len(SELF_TEST_OWNERS) + 2 + len(roster_cases) + 1
     print(f"SELF-TEST OK -- {cases} cases: every signal fires, every suppression holds")
     return 0
 
@@ -687,8 +760,7 @@ def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
 
-    root = os.environ.get("EA_ROOT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    os.chdir(root)
+    os.chdir(ROOT)
     agent_paths = sorted(p.replace("\\", "/") for p in glob.glob(".claude/agents/*.md"))
     skill_paths = sorted(p.replace("\\", "/") for p in
                          set(glob.glob(".claude/skills/*/SKILL.md")) | set(glob.glob(".claude/skills/*/*/SKILL.md")))
@@ -698,19 +770,21 @@ def main() -> int:
         return 2
 
     failures: list[str] = []
-    notes: list[str] = []
     # The roster file and the agent files must agree, or the gates and the agents
-    # disagree about who exists.
+    # disagree about who exists. Every agent has a file, switched on or not: a
+    # switched-off agent's file is what it answers with if a dispatch slips through.
     on_disk = {os.path.basename(p)[:-3].upper() for p in agent_paths}
-    for name, phase in ROSTER_PHASES:
-        if phase <= 1 and name not in on_disk:
-            failures.append(f"context/roster-agents.json lists {name} (phase {phase}) but "
+    for name in ROSTER:
+        if name not in on_disk:
+            failures.append(f"context/roster-agents.json lists {name} but "
                             f".claude/agents/{name.lower()}.md does not exist")
-        elif phase > 1 and name not in on_disk:
-            notes.append(f"{name} is reserved for phase {phase}; no agent file yet (expected)")
     for name in sorted(on_disk - set(ROSTER)):
         failures.append(f".claude/agents/{name.lower()}.md is not in context/roster-agents.json")
     agents = check_parses(agent_paths, failures)
+    try:
+        failures += check_roster_files(agents, team.load(ROOT))
+    except team.TeamUnreadable as exc:
+        failures.append(f"the team cannot be read, so no switched-off agent was checked: {exc}")
     skills = check_parses(skill_paths, failures)
     # Skills carry no `tools:` of their own, so both contract checks read them
     # against the tools their owning agent holds. Before this they were parsed
@@ -728,12 +802,6 @@ def main() -> int:
     # Printed on both paths. A skill nobody owns is checked against nobody's
     # tools, and the whole point of this exercise was that a silent blind spot
     # reads exactly like a pass.
-    if notes:
-        print(f"NOTE -- {len(notes)} roster entr{'y' if len(notes) == 1 else 'ies'} without a file:")
-        for line in notes:
-            print(f"  {line}")
-        print()
-
     if unattributed:
         print(
             f"NOTE -- {len(unattributed)} skill(s) resolve to no agent, so no tool "

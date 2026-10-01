@@ -61,7 +61,7 @@ def _resolve_db() -> Path:
 
 DB_PATH = _resolve_db()
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 PEOPLE_ALLOWED_COLUMNS = {
     "id", "key", "full_name", "work_email", "role", "aliases_json",
@@ -335,12 +335,34 @@ MIGRATIONS: list[tuple[int, str]] = [
         ALTER TABLE docs ADD COLUMN reconciled_revision_id TEXT;
         """,
     ),
+    (
+        3,
+        """
+        -- SAGE's verdict on a proposal the privacy screen flagged (scripts/privacy_screen.py).
+        -- Bound to the proposal's sha256, so a verdict cannot be carried over to different
+        -- words. The newest row for a sha256 is the verdict docs_edit.py obeys; older rows
+        -- stay as the history of the decision. Only scripts/privacy_review.py writes here,
+        -- and require-privacy-agent.py lets only SAGE run it.
+        CREATE TABLE IF NOT EXISTS privacy_reviews (
+            id              INTEGER PRIMARY KEY,
+            proposal_path   TEXT NOT NULL,
+            proposal_sha256 TEXT NOT NULL,
+            item_ref        TEXT,
+            verdict         TEXT NOT NULL CHECK (verdict IN ('approve', 'hold')),
+            category        TEXT,
+            reason          TEXT NOT NULL,
+            reviewer        TEXT NOT NULL,
+            ts              TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS privacy_reviews_sha ON privacy_reviews (proposal_sha256, id);
+        """,
+    ),
 ]
 
 TABLES = (
     "counters", "people", "meetings", "docs", "actions", "action_events", "topics",
     "needs_input", "doc_items", "doc_snapshots", "reconcile_events", "captures",
-    "proposals", "approvals", "audit", "job_ticks",
+    "proposals", "approvals", "audit", "job_ticks", "privacy_reviews",
 )
 
 

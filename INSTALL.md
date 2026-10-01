@@ -33,6 +33,12 @@ The build was verified from the command line. What only a live session can show 
 | Ask it to write a file under `state/proposals/` by hand | BLOCKED: no dispatch (require-dispatch), or no `ea-class` (classify-and-place) |
 | `/morning` | starts with the tick line; then the sections; nothing sent |
 | On a copy of the kit with no `state\BUILD_MACHINE`: ask it to edit a hook, even with the phrase | BLOCKED: code and permissions ship built |
+| `/NAME process my 1:1 transcript with Kaed` | no dispatch; NAME relays `NOT SWITCHED ON YET: MILO (meetings and transcripts), Phase 2.` and its second line; roll call `TEAM  \|  read only, nothing written` |
+| Ask it to dispatch MILO anyway, then Explore | both refused by require-active-agent before they start, with no `>> ... dispatched` banner; MILO's refusal is exactly the two lines |
+| `/add Shift swap Friday so Kaed can get to a medical appointment` | PAGE prints `privacy_review: required (health ...)`; roll call REED -> PAGE -> SAGE -> WREN, or SAGE holds it, nothing is written, and NAME offers Taylor's private notes |
+| Ask the orchestrator to run `scripts/privacy_review.py` itself | BLOCKED by require-privacy-agent: only SAGE |
+| `/NAME prep me for Kaed` | LARK dispatched; the Doc link, the next 1:1, what Taylor owes and must answer; nothing written |
+| `python scripts/team.py` | 6 on (REED, PAGE, WREN, HUGO, SAGE, LARK via D-3), 7 off |
 
 If any row does not behave as expected, stop and fix it before the visit. A gate that has never been
 seen to fire has not been tested.
@@ -153,9 +159,20 @@ battery flags back.
 
 ## Updating
 
-Rebuild the kit on Mike's machine (step 2), copy it over the install WITHOUT touching `state\`,
-then run the doctor and the self-test. Code and permissions cannot be changed from a session on
-Taylor's machine by design (`protect-architecture.py`, layer B); every change ships from Mike.
+Rebuild the kit on Mike's machine (step 2), copy it over the install WITHOUT touching `state\` or
+`context\architecture\`, then run the doctor and the self-test. Code and permissions cannot be
+changed from a session on Taylor's machine by design (`protect-architecture.py`, layer B); every
+change ships from Mike.
+
+`context\architecture\` is Taylor's: his phase approvals (`phases.json`), his deviation decisions
+(`deviations.json`) and his Architecture Change Log live there and change on his machine. A kit
+that overwrote them would silently undo what he approved. When an update adds an entry there (a new
+deviation, a new phase field), merge it into his copy by hand and keep every value he set.
+
+Switching an agent on after Taylor approves its phase: build and test it here, set its key's
+`accepted` date in `build_record` in `context\roster-agents.json` (and give its agent file real
+tools), then ship the kit. `python scripts\validate_agent_contracts.py` fails if a switched-off
+agent holds more than Read, Glob and Grep, so the two cannot drift.
 
 ## Uninstall
 

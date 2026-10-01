@@ -17,6 +17,12 @@ This hook MUST NOT BLOCK. It is cosmetic; a banner that deadlocks a dispatch is
 strictly worse than no banner, so every failure path exits 0 in silence. Note the
 asymmetry with the gates in this directory: they fail closed because their job is
 to refuse, this one fails open because its job is to narrate.
+
+IT STAYS SILENT FOR A DISPATCH THE GATE REFUSES. require-active-agent.py runs
+alongside this hook, and hooks for one tool call run in parallel, so without this
+Taylor would read ">> MILO dispatched" directly above "NOT SWITCHED ON YET: MILO".
+It asks scripts/team.py the same question the gate asks. When the team files cannot
+be read the gate refuses every dispatch, so the banner stays silent then too.
 """
 
 from __future__ import annotations
@@ -68,9 +74,23 @@ def objective_of(tool_input: dict) -> str:
     return text
 
 
+def refused(raw_type: str) -> bool:
+    """True when require-active-agent.py refuses this dispatch, so nothing will be dispatched."""
+    try:
+        scripts = str(REPO_ROOT / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        import team  # noqa: PLC0415
+
+        allowed, _, _ = team.dispatch_verdict(team.load(REPO_ROOT), raw_type)
+        return not allowed
+    except Exception:
+        return True  # swallow: the gate refuses whatever it cannot check, so there is nothing to announce
+
+
 def banner(tool_input: dict) -> str:
     raw_type = (tool_input.get("subagent_type") or "").strip()
-    if not raw_type:
+    if not raw_type or refused(raw_type):
         return ""
 
     # Plugin-qualified names arrive as "ea:wren"; only the bare name maps to a

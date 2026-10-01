@@ -25,6 +25,7 @@ Read `CLAUDE.md` first.
   machine anyway, and trying is the failure);
 - re-run the Doc writer itself, or edit a proposal so it passes;
 - approve a deviation, register a Doc, or confirm a section map on Taylor's behalf;
+- record a privacy verdict (SAGE's alone), or try to start an agent that is not switched on;
 - type an approval phrase or an override for anyone.
 
 If a gate is genuinely wrong, the fix is a written case for Mike: which rule fired, on what, and
@@ -48,6 +49,8 @@ why the work was legitimate.
 | no revisionId / exit 2 "cannot edit" | Taylor's account has view-only access to that Doc | the Doc's owner shares it with edit rights; never write around it |
 | exit 3 after a stale revision | a manager edited at the same moment, twice | ask PAGE for a fresh proposal and let WREN deliver it once more |
 | exit 4 | a write may have landed unverified | stop; report the Doc and the row; Mike checks it by hand |
+| NOT SWITCHED ON / APPROVED, NOT BUILT YET | the agent's phase is not approved, or not built | not a block: relay the two lines; only Taylor's phrase and Mike's build change it |
+| "SAGE is holding this proposal" | SAGE decided the line stays private | not a block: Taylor rewords it, explains why it belongs, or keeps it private |
 | LAST TICK in red | the scheduled task is missing, disabled, or failing | `ea_doctor.py` shows which; Mike re-registers with `scripts/schedule_ea_tick.ps1` |
 
 Reproduce before you conclude. A theory handed back as a fact costs the next agent a whole run.

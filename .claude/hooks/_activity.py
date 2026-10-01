@@ -34,6 +34,7 @@ WHAT COUNTS AS WRITING.
   A Bash or PowerShell command that runs:
     scripts/docs_edit.py      any invocation (it can only write)
     scripts/docs_propose.py   any invocation (it writes a proposal)
+    scripts/privacy_review.py any invocation (--approve and --hold write SAGE's stamp)
     scripts/register.py       any subcommand EXCEPT the readers listed in
                               REGISTER_READS. The list is of readers, not writers, so a
                               subcommand nobody has classified counts as a write: a new
@@ -47,7 +48,13 @@ WHAT COUNTS AS WRITING.
 
   Not writes: docs_reconcile.py, ea_tick.py and calendar_next.py --refresh. They pull
   what somebody else wrote into the register, exactly as the scheduled tick does, and
-  /owe and /morning run the reconcile every time.
+  /owe and /morning run the reconcile every time. prep.py and team.py are not watched
+  at all: they open nothing for writing.
+
+  A DISPATCH A GATE REFUSED wrote nothing: the agent never started. _transcript.py
+  marks it from the refusal recorded in the transcript itself. A Workflow that was
+  not refused is unreadable from here (its agents never appear as Agent calls), so it
+  makes the turn UNVERIFIED rather than earning the quiet line.
 
 COUNTS ATTEMPTS, NOT OUTCOMES. A Write that a gate blocked still counts, and so does
 docs_edit.py refused by require-delivery-agent.py. The transcript cannot prove a
@@ -82,7 +89,7 @@ READ_ONLY = "read_only"
 WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit", "NotebookEdit"})
 SHELL_TOOLS = frozenset({"Bash", "PowerShell"})
 
-ALWAYS_WRITES = frozenset({"docs_edit", "docs_propose"})
+ALWAYS_WRITES = frozenset({"docs_edit", "docs_propose", "privacy_review"})
 REGISTER_READS = frozenset({"owed", "history", "morning", "resolve-date", "resolve-person", "topics", "show"})
 NEEDS_INPUT_READS = frozenset({"list"})
 LINK_DOCS_READS = frozenset({"--status", "--verify", "--detect", "--person", "--doc", "--map-file"})
@@ -106,7 +113,7 @@ QUOTES = str.maketrans({'"': " ", "'": " ", "`": " "})
 WRAPPING = "()[]{}$@,"
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
 INLINE_IMPORT = re.compile(
-    r"\b(?:import|from)\s+(?:scripts\.)?(?:docs_edit|docs_propose|register|link_docs|calendar_next)\b")
+    r"\b(?:import|from)\s+(?:scripts\.)?(?:docs_edit|docs_propose|privacy_review|register|link_docs|calendar_next)\b")
 REGISTER_DB = re.compile(r"\b(?:ea|fixtures)\.db\b|\bea_db\b", re.I)
 SQL_WRITE = re.compile(
     r"\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM"
@@ -206,9 +213,12 @@ def tool_use_writes(use: dict) -> bool | None:
         tool_input = use.get("input")
         command = tool_input.get("command") if isinstance(tool_input, dict) else None
         return shell_writes(command) if isinstance(command, str) else None
-    if name in ("Agent", "Task"):
-        # Reached only when the roster could not name the agent (Task is the tool's
-        # older name), so whatever that agent did is not visible from here.
+    if name in ("Agent", "Task", "Workflow"):
+        if use.get("refused"):
+            return False  # refused before it started: nothing ran, so nothing was written
+        # An Agent call reaches here only when the roster could not name the agent
+        # (Task is the tool's older name); a Workflow's agents are never named. Either
+        # way, whatever ran is not visible from here.
         return None
     return False
 

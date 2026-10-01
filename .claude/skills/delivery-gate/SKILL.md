@@ -15,7 +15,8 @@ Owner: WREN.
 
 1. Refuses (exit 2) before touching anything: an unregistered Doc; a live Doc while
    `EA_FIXTURE_MODE=1`; a live Doc before Taylor approves deviation D-1; a section map he has not
-   confirmed; a proposal that is not PAGE's exact bytes; no revisionId (no edit rights).
+   confirmed; a proposal that is not PAGE's exact bytes; a proposal the privacy screen flagged that
+   SAGE has not approved, or is holding; no revisionId (no edit rights).
 2. Reads the Doc fresh and writes under `writeControl.requiredRevisionId`.
 3. A manager editing at the same moment makes Google refuse; it retries once from a fresh read,
    then exits 3.

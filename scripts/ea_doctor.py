@@ -13,6 +13,8 @@ the Phase 1 scopes, every registered Doc readable and editable, the Calendar rea
 location is checked against context/identity.json. The scheduled task is EA-Tick and its battery
 flags are read back. The build-machine marker is reported, because on Taylor's machine it must not
 exist. Deviation D-1's status is shown, because it decides whether any live Doc can be written.
+The team is counted (scripts/team.py), and an agent that is on while its phase is not accepted is
+a WARN, so LARK running ahead of Phase 3 under D-3 stays visible until Taylor decides.
 
 Usage:
     python scripts/ea_doctor.py
@@ -157,6 +159,32 @@ def check_audit_and_deviations(report: Report) -> None:
     report.add(OK if approved else WARN, "live Doc writes", "approved (D-1)" if approved else f"OFF: {why}")
 
 
+def check_team(report: Report) -> None:
+    """Who is switched on, and any agent that is on while its own phase is not accepted.
+
+    An unreadable team is a FAIL, because the dispatch gate then refuses every agent.
+    The warning is the cross-check on scripts/team.py: an agent switched on by its
+    phase is accepted by construction, so the line fires for an agent running ahead of
+    its phase through a deviation (LARK under D-3), and for a mistake in the build record.
+    """
+    import team  # noqa: PLC0415
+
+    try:
+        roster = team.load(REPO_ROOT)
+    except team.TeamUnreadable as exc:
+        report.add(FAIL, "team", f"unreadable, so every dispatch is refused: {exc}")
+        return
+    statuses = roster.all()
+    report.add(OK, "team", team.counts(statuses))
+    for status in statuses:
+        if not status.active or status.phase is None:
+            continue
+        if not roster.accepted(f"phase {status.phase}"):
+            via = f" via {status.route}" if status.route and not status.route.startswith("phase") else ""
+            report.add(WARN, f"agent {status.name}",
+                       f"on{via}, but Phase {status.phase} is not accepted (see docs/DEVIATIONS.md)")
+
+
 def check_google(report: Report, offline: bool) -> None:
     import google_creds  # noqa: PLC0415
 
@@ -247,7 +275,7 @@ def main() -> int:
     print(f"EA doctor: {REPO_ROOT}")
     print(f"  {platform.platform()}\n")
     report = Report()
-    for step in (check_prerequisites, check_location, check_database, check_audit_and_deviations):
+    for step in (check_prerequisites, check_location, check_database, check_audit_and_deviations, check_team):
         try:
             step(report)
         except Exception as exc:  # noqa: BLE001

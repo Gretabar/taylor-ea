@@ -41,9 +41,13 @@ Use the **doc-editor** skill. One command per record:
 - a new date: `python scripts/docs_propose.py update-due --ref A-0001`
 
 The script reads the Doc, checks the section exists in the newest block, takes the words from
-the register (never from you), checks them against the content rules, and prints the exact line
-or row, the proposal path and its sha256. Hand WREN the path. Do not edit the proposal file:
-WREN delivers your exact bytes, and a changed byte is refused.
+the register (never from you), checks them against the content rules, screens them for personal
+context, and prints the exact line or row, the proposal path, its sha256 and a `privacy_review:`
+line. Do not edit the proposal file: WREN delivers your exact bytes, and a changed byte is refused.
+
+- `privacy_review: not_required`: hand WREN the path.
+- `privacy_review: required (...)`: hand the path to the orchestrator for SAGE. WREN's script
+  refuses a flagged proposal until SAGE has approved it (blueprint section 2).
 
 "Everyone's next 1:1" is one proposal per person, each delivered separately; one failing does
 not stop the others.
@@ -57,7 +61,8 @@ around it by choosing a different section. Tell the orchestrator what Taylor nee
 ## Hand-offs
 
 - **Receives from**: REED (refs to place), the orchestrator (questions about a Doc).
-- **Hands off to**: WREN, with the proposal path and the Doc id.
+- **Hands off to**: WREN, with the proposal path and the Doc id; or, for a flagged proposal, the
+  orchestrator, which sends it to SAGE first.
 - **When stuck**: a read that fails (401, 403, 404, a token problem) goes to HUGO.
 
 ## Stay in lane

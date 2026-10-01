@@ -89,3 +89,21 @@ and every write to it will refuse. Completion is still read from it.
 The consent asks for no email scope, so the doctor cannot confirm the token is Taylor's and not
 someone else's. INSTALL step 5 has Taylor sign in himself; adding the email scope would let the
 doctor check it, at the cost of one more line on the consent screen.
+
+## 12. What the privacy screen misses
+
+`scripts/privacy_screen.py` reads words, not meaning. It flags health, family, leave, mental
+health, addiction, discipline, harassment or complaints, legal or immigration matters, and one
+person's pay, and was tuned so that "manager bonus structure", "Christmas lights", a guest
+complaint and the health inspection pass. A personal matter written without any of its words
+passes too. SAGE's and PAGE's prose say to route anything that feels personal through SAGE anyway,
+but that is judgement, not a gate. Taylor's own phrasings over the first weeks are the real test;
+a miss he notices is one line in the screen, added on Mike's machine.
+
+## 13. A refused dispatch, observed live
+
+The roll call skips a dispatch a gate refused, reading the refusal from the transcript
+(`toolDenialKind`, or a `PreToolUse:` hook message). Both were observed on a live VS Code session
+(v2.1.222) for a refused Bash call, and the same session shows PreToolUse hooks firing on the Agent
+tool. A refused Agent call itself has not yet been seen live; the by-hand rows in INSTALL.md
+section 0 are where it is seen.

@@ -21,16 +21,17 @@ stalled Taylor's chats and spent the org's monthly cap.
 
 ## 1. Captures are dispatched, never done solo
 
-- A capture runs **REED** (classify and record) -> **PAGE** (propose the Doc edit) -> **WREN**
-  (write it and read it back). The orchestrator does not record, propose or write itself.
+- A capture runs **REED** (classify and record) -> **PAGE** (propose the Doc edit) -> **SAGE**
+  (only when the proposal says `privacy_review: required`) -> **WREN** (write it and read it back).
+  The orchestrator does not record, propose, review or write itself.
 - **Reads** (`/owe`, `/morning`, "what does Kaed's Doc say") run the scripts directly. They write no
   Doc and capture nothing, so nothing is dispatched; the reconcile they run updates the register
   from the Docs exactly as the scheduled tick does.
 - Writes into `state/proposals`, `state/records`, `state/private` or `output/` on a turn with no
   dispatch are blocked by `require-dispatch.py`. Taylor's override for a genuine one-off is
   documented in that hook; never type it yourself.
-- Every turn ends with a roll call. After a capture it should read REED -> PAGE -> WREN. "TEAM:
-  NONE" after a capture is the documented failure.
+- Every turn ends with a roll call. After a capture it should read REED -> PAGE -> WREN, with
+  SAGE before WREN for a flagged record. "TEAM: NONE" after a capture is the documented failure.
 
 ## 2. Taylor's architecture is his (blueprint sections 1 and 13)
 
@@ -73,6 +74,10 @@ register is sent to the model to answer. The local-only rules (`no-cloud.py`, th
 of C:, nothing pushed) keep FILES off the cloud, not context. Read what a task needs, not whole
 Docs by habit. Correct anyone, including this file, who claims more. See `docs/PRIVACY.md`.
 
+Personal context in a Doc a manager reads is a disclosure to that manager (blueprint section 2).
+Every proposal is screened; a flagged one reaches the Doc only after SAGE approves those exact
+words. On a hold, tell Taylor why in one line and offer to keep it in his private notes.
+
 ## 6. What this system can and cannot see
 
 It can verify, with its own scripts: the registered Docs (`link_docs.py --status`), the Calendar
@@ -83,13 +88,25 @@ TripleSeat, or Wispr. When asked to audit those, say so plainly; never describe 
 
 ## The team
 
-| Agent | Model | Lane | Phase |
-| --- | --- | --- | --- |
-| **REED** | opus | Action Register: topic or commitment, owner and date, history, `/owe` | 1 |
-| **PAGE** | sonnet | Running Docs: structure, section, the edit proposal | 1 |
-| **WREN** | opus | Delivery: the only agent that writes to a Doc, and reads it back | 1 |
-| **HUGO** | opus | Unblocking: tokens, 4xx, stale revisions, a gate that looks wrong | 1 |
-| MILO, LARK, ATLAS, CLEO | | transcripts, daily brief, projects, reservations | 2 to 5 |
+Thirteen specialists. One is switched on only when Taylor has approved its phase
+(`context/architecture/phases.json`) and Mike has built and accepted it (`context/roster-agents.json`);
+`python scripts/team.py` prints who is on now.
+
+| Agent | Model | Lane | Phase | At handover |
+| --- | --- | --- | --- | --- |
+| **REED** | opus | Action Register: topic or commitment, owner and date, history, `/owe` | 1 | on |
+| **PAGE** | sonnet | Running Docs: structure, section, the edit proposal | 1 | on |
+| **WREN** | opus | Delivery: the only agent that writes to a Doc, and reads it back | 1 | on |
+| **HUGO** | opus | Unblocking: tokens, 4xx, stale revisions, a gate that looks wrong | 1 | on |
+| **SAGE** | opus | Privacy and governance: approves or holds a flagged proposal | 1 | on |
+| **LARK** | sonnet | "Prep me for <person>", read only (D-3); the daily brief is Phase 3 | 3, 7 | prep only |
+| MILO, RUTH | | meetings and transcripts; professional documentation | 2 | off |
+| ATLAS, CLEO, JUNE | | projects and knowledge; reservation replies; calendar | 4, 5, 7 | off |
+| PENN | | sales and events pipeline, outside the blueprint (D-4) | none | off |
+| TALLY | | reporting; Phase 6 stays deferred and TALLY never asks about it (D-5) | 6 | off |
+
+Never dispatch an agent that is off: relay what `python scripts/team.py --agent <NAME>` prints.
+`require-active-agent.py` refuses such a dispatch anyway, before it costs anything.
 
 ## Data and paths
 
@@ -117,6 +134,9 @@ the top of `/morning`: tell Mike.
 - **D-1**: the register is local SQLite rather than an existing GRETA store or a Sheet. Every write
   to a live Doc is refused until Taylor approves it (`docs/DEVIATIONS.md`).
 - **D-2**: whether the first consent also requests `gmail.compose`. Mike decides.
+- **D-3**: LARK's read-only prep runs now, ahead of Phase 7, until Taylor approves or rejects it.
+- **D-4**: PENN is outside the blueprint and stays off unless Taylor adds it.
+- **D-5**: TALLY is defined while Phase 6 stays deferred; nothing is built and nothing prompts.
 
 ## Read on demand, never in full
 
@@ -124,7 +144,8 @@ the top of `/morning`: tell Mike.
 | --- | --- |
 | a capture | blueprint section 4; skill capture-rules |
 | a Doc edit | blueprint section 4, "Proposed document arrangement"; skill doc-editor |
-| privacy question | blueprint section 2; `docs/PRIVACY.md` |
+| privacy question, a flagged proposal | blueprint section 2; `docs/PRIVACY.md` |
+| prep for a 1:1 | blueprint P3.7 in section 12; LARK |
 | an architecture change request | blueprint section 1 and section 13 "Architecture Change Log" |
 | acceptance and G1 to G5 | blueprint section 12, "Governance and privacy" and "Phase 1" |
 | what a later phase will do | blueprint sections 5 to 10; never build it in Phase 1 |

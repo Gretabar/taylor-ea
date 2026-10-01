@@ -31,6 +31,7 @@ COMMANDS
     resolve-person  "<name as heard>"             resolved | ambiguous | unresolved
     resolve-date    "<phrase>" [--from YYYY-MM-DD] [--tz Zone]
     alias           --person <key> --add "<variant>"   a G5 correction, never a new row
+    keep-private    <T-ref|A-ref>                 Taylor's private notes instead of a Doc
     seed            --roster                      load context/roster.json
     topics          [--person <key>] [--status queued|placed|...]
     show            <ref>
@@ -59,6 +60,10 @@ import ea_db  # noqa: E402
 REPO_ROOT = ea_db.REPO_ROOT
 IDENTITY_PATH = REPO_ROOT / "context" / "identity.json"
 ROSTER_PATH = REPO_ROOT / "context" / "roster.json"
+PRIVATE_NOTES = REPO_ROOT / "state" / "private" / "notes.md"
+FIXTURE_PRIVATE_NOTES = REPO_ROOT / "state" / "private" / "fixture-notes.md"
+PRIVATE_HEADER = ("<!-- ea-class: private -->\n# Private notes\n\n"
+                  "Kept on this machine only and never written to a running Doc (blueprint section 2).\n\n")
 
 PREFIXES = {"action": "A", "topic": "T", "question": "Q"}
 ACTION_STATUSES = ("open", "done", "cancelled", "snoozed", "delegated")
@@ -536,6 +541,75 @@ def complete(conn: sqlite3.Connection, ref: str, *, via: str, actor: str, source
     return {"ref": action["ref"], "changed": True, "status": "done", "completed_via": via}
 
 
+def private_notes_path() -> Path:
+    """Taylor's private notes; the fixture world keeps its own, so a test never writes into his."""
+    return FIXTURE_PRIVATE_NOTES if ea_db.fixture_mode() else PRIVATE_NOTES
+
+
+def _append_private(path: Path, line: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "ab") as handle:
+        if handle.tell() == 0:
+            handle.write(PRIVATE_HEADER.encode("utf-8"))
+        handle.write((line + "\n").encode("utf-8"))
+
+
+def keep_private(conn: sqlite3.Connection, ref: str, *, actor: str = "taylor", notes_path: Path | None = None) -> dict:
+    """Keep an item in Taylor's private notes instead of a manager-readable Doc (blueprint s.2).
+
+    What SAGE offers after a hold, carried out only when Taylor says yes. One line
+    goes into the private notes (state/private), and any proposal still waiting to
+    put the item into a Doc is withdrawn, so WREN can never deliver it later. A topic
+    leaves the agenda queue ('dropped'); an action stays open in the register,
+    because the commitment is still real and only its place in the Doc is given up.
+    Nothing is deleted. An item already placed in a Doc is refused: keeping it
+    private now would not take the line back out, and saying so is the honest answer.
+    """
+    ref = ref.strip().upper()
+    if ref.startswith("T-"):
+        row = conn.execute("SELECT t.*, p.key AS person FROM topics t JOIN people p ON p.id = t.person_id"
+                           " WHERE t.ref = ?", (ref,)).fetchone()
+        if row is None:
+            raise RegisterError(f"no topic {ref}")
+        if row["status"] == "placed":
+            raise RegisterError(f"{ref} is already in {row['person'].title()}'s Doc; keeping it private now would "
+                                f"not take that line out. Ask Taylor what he wants done with it.")
+        what, person, text, action_id = "topic", row["person"], row["text"], None
+    elif ref.startswith("A-"):
+        row = action_by_ref(conn, ref)
+        if conn.execute("SELECT 1 FROM doc_items WHERE item_kind = 'action' AND item_ref = ?", (ref,)).fetchone():
+            raise RegisterError(f"{ref} is already in a Doc; keeping it private now would not take that row out. "
+                                f"Ask Taylor what he wants done with it.")
+        what, text, action_id = "action", row["text"], row["id"]
+        person = _person_key(conn, row["counterpart_person_id"] or row["owner_person_id"]) or "no person"
+    else:
+        raise RegisterError("keep-private takes a topic (T-0000) or an action (A-0000) ref")
+
+    hold = conn.execute("SELECT category, reason FROM privacy_reviews WHERE item_ref = ? AND verdict = 'hold'"
+                        " ORDER BY id DESC LIMIT 1", (ref,)).fetchone()
+    line = f"- {today_local().isoformat()}, {person.title()} ({what} {ref}): {text}"
+    if hold:
+        line += f" SAGE held it ({hold['category']}): {hold['reason']}"
+    path = notes_path or private_notes_path()
+    # The private copy is written before the queue entry is withdrawn, so a failure
+    # in between leaves the item queued (and visible) rather than nowhere.
+    _append_private(path, line)
+    now = ea_db.now_iso()
+    with conn:
+        withdrawn = conn.execute("UPDATE proposals SET status = 'superseded', error = ? WHERE item_ref = ?"
+                                 " AND status IN ('pending', 'failed')",
+                                 ("kept private at Taylor's request", ref)).rowcount
+        if what == "topic":
+            conn.execute("UPDATE topics SET status = 'dropped', last_error = NULL, updated_at = ? WHERE ref = ?",
+                         (now, ref))
+        else:
+            _event(conn, action_id, actor, "doc", None, "kept private", source="chat",
+                   note="not placed in a Doc, at Taylor's request")
+    return {"ref": ref, "kept_private": True, "notes": path.relative_to(REPO_ROOT).as_posix()
+            if path.is_relative_to(REPO_ROOT) else str(path), "proposals_withdrawn": withdrawn,
+            "topic_status": "dropped" if what == "topic" else None}
+
+
 # ---------------------------------------------------------------------------
 # reads
 # ---------------------------------------------------------------------------
@@ -834,9 +908,21 @@ def self_test() -> int:
             check("completed work leaves owed", [], [i["ref"] for items in owed(conn)["by_person"].values() for i in items])
             check("completed work stays queryable", "done", history(conn, "A-0001")["status"])
 
+            # Kept private instead of a Doc: the topic leaves the queue, the words go to the notes.
+            notes = Path(tmp) / "private-notes.md"
+            kept = keep_private(conn, "T-0001", notes_path=notes)
+            check("keep-private drops the topic from the Doc queue", "dropped",
+                  conn.execute("SELECT status FROM topics WHERE ref = 'T-0001'").fetchone()[0])
+            written = notes.read_text(encoding="utf-8")
+            check("keep-private writes a declared private note", (True, True),
+                  ("ea-class: private" in written, "Manager bonus structure" in written))
+            check("keep-private reports where it wrote", str(notes), kept["notes"])
+
             # Refs are never reused.
             a3 = add_action(conn, text="Another", owner="taylor", due="2026-10-20", instruction_date="2026-10-01")
             check("refs keep counting", "A-0003", a3["ref"])
+            keep_private(conn, "A-0003", notes_path=notes)
+            check("a commitment kept private is still owed", "open", action_by_ref(conn, "A-0003")["status"])
             for bad_field in ("priority", "id"):
                 try:
                     update_action(conn, "A-0003", bad_field, "x", actor="taylor")
@@ -853,7 +939,8 @@ def self_test() -> int:
         return 1
     print("SELF-TEST OK -- register: dates (incl. Friday from Thursday 2026-10-01 -> 2026-10-02 and "
           "Thursday-on-Thursday ambiguous), identity (alias, near-miss, ambiguity, G5 correction), "
-          "idempotent capture, unresolved fields with one question, move count 2, completion history")
+          "idempotent capture, unresolved fields with one question, move count 2, completion history, "
+          "keep-private")
     return 0
 
 
@@ -943,6 +1030,10 @@ def main() -> int:
     p.add_argument("--person", required=True)
     p.add_argument("--add", required=True)
 
+    p = sub.add_parser("keep-private")
+    p.add_argument("ref")
+    p.add_argument("--actor", default="taylor")
+
     p = sub.add_parser("seed")
     p.add_argument("--roster", action="store_true", required=True)
 
@@ -983,6 +1074,9 @@ def main() -> int:
             result = add_alias(conn, args.person, args.add)
             _emit(result, args.json, f"{'added' if result['added'] else 'already known'}: "
                                      f"{result['alias']!r} -> {result['key']}")
+            return 0
+        if args.cmd == "keep-private":
+            _emit(keep_private(conn, args.ref, actor=args.actor), True)
             return 0
         if args.cmd == "add-action":
             result = add_action(conn, text=args.text, owner=args.owner.lower(), due=args.due,
