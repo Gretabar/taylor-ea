@@ -115,8 +115,11 @@ def fetch(service, doc_id: str) -> dict:
         meaning = {404: "not found (deleted, or the id is wrong)",
                    403: "forbidden (this account cannot open it)"}.get(status, "refused")
         raise DocReadError(f"documents.get {doc_id}: HTTP {status}, {meaning}", status) from exc
-    except OSError as exc:
-        raise DocReadError(f"documents.get {doc_id}: network error {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        # Not swallowed: re-raised as the typed error every caller handles. The Google
+        # client's transport raises httplib2 errors that are not OSError, and a read
+        # that fails for a network reason must still reach the caller as "could not read".
+        raise DocReadError(f"documents.get {doc_id}: {exc.__class__.__name__}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +372,9 @@ def classify_status(text: str, chips: list | None = None) -> str:
     """A Status cell or a checklist line: open, checked, or ambiguous. Never guesses done."""
     raw = (text or "").replace(CHIP_PLACEHOLDER, " ").strip()
     if any((chip or {}).get("type") == "unknown" for chip in chips or []):
-        return "ambiguous"
+        # A chip the API cannot read (a dropdown, say). Alone it is UNREADABLE, which
+        # is reported, never guessed; beside typed text the two signals may disagree.
+        return "ambiguous" if raw else "unreadable"
     if not raw:
         return "open"
     if raw in CHECK_MARKS:
@@ -436,8 +441,8 @@ def locate(parsed: dict, *, item_kind: str, item_ref: str, named_range: str | No
         dates = [c for c in date_cell.get("chips") or [] if c.get("type") == "date"]
         return {"state": state, "via": via, "shape": "row", "text": title_cell["text"],
                 "status_text": status_cell["text"], "row_start": row["start"], "row_end": row["end"],
-                "date_chip": dates[0] if dates else None,
-                "date_text": date_cell.get("text", "") if isinstance(date_cell, dict) else ""}
+                "date_chip": dates[0] if dates else None, "date_cell_chips": date_cell.get("chips") or [],
+                "date_text": (date_cell.get("text", "") or "").replace(CHIP_PLACEHOLDER, "").strip()}
 
     def describe_para(para: dict, via: str) -> dict:
         state = "checked" if para["struck"] else classify_status_line(para["text"])

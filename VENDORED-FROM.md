@@ -58,7 +58,7 @@ Vendored 2026-10-01.
 | `scripts/notify_owner.py` | `PIPER:scripts/notify_cass.py` | `untracked` | `661fb20f4e154868d699ab00732c632aa8536740ac484f411328956febf37847` | `e91e5d61ea435602d3b96ba5687c36ca756093cd7d42d112f7683d33facc64f4` | PORT |
 | `scripts/validate_agent_contracts.py` | `PIPER:scripts/validate_agent_contracts.py` | `untracked` | `fb2892cca02a78f2495ccb78ac1645432ec0e4ced23a1220c6e2bd1c154ae896` | `79e694a8ac597a412a7e4f0f65df63124b45bfcd1fa78ca7ab409422f1c6aa6e` | PORT |
 | `scripts/validate_content_rules.py` | `PIPER:scripts/validate_content_rules.py` | `untracked` | `310ad7f6afa5f38be5c18dc27d580fd37005dffdd5551114b15587c3e98fbdc0` | `4ac1fde475bfb47ef9c7e687bf46ef0b2d4c9deb7e70dd8af212564dbc30723b` | PORT |
-| `scripts/validate_guardrails.py` | `PIPER:scripts/validate_guardrails.py` | `untracked` | `704b4700e07cc3c26e3650507b73bd7660eb9d01db2216b973fedeaa54c7dfe7` | `fa6603f7c8c49634993bf2f0ca83296bf4f1a2852b0ca155ad42e2f4a2baef79` | PORT |
+| `scripts/validate_guardrails.py` | `PIPER:scripts/validate_guardrails.py` | `untracked` | `704b4700e07cc3c26e3650507b73bd7660eb9d01db2216b973fedeaa54c7dfe7` | `cefcb2b21dcc13b8adb5a60aded7242f66058576b288193c7c387f3d74407fcd` | PORT |
 | `scripts/check_vendored.py` | `PIPER:scripts/check_vendored.py` | `untracked` | `3e9ab0c1894a70989998c8e536331bacb6f722d40ffc0ac0abadd84d5ce646ef` | `38816c2bb00335002c4c93dccc39d95d6620b8b4935b6475adac03eab9f753f5` | PORT |
 | `.claude/hooks/_health.py` | `-` | `-` | `-` | `2ab3ed936716efb6b290c479a5e8790e461fa14965ecd2165a81d22e8b7b19ac` | NEW |
 | `.claude/hooks/require-delivery-agent.py` | `-` | `-` | `-` | `190205d929fbf92aea96e769fa90b13957a11e20fbb428b1fa00969fc9a68357` | NEW |
@@ -66,12 +66,17 @@ Vendored 2026-10-01.
 | `scripts/register.py` | `-` | `-` | `-` | `c6bd14f0bf119f03298d30a530417778a61bf49538bd284769b670d26cf88969` | NEW |
 | `scripts/google_creds.py` | `STEVIE:scripts/upload_to_drive.py` | `untracked` | `8501f0e5e2c0f6c5e0b8220ae2a650eb7af453cb413b64666690889f6674f883` | `9edf8952c0912ac2a203685ee23ec5559974dcbb443678d562fe3bec37a3924b` | PORT |
 | `scripts/google_auth.py` | `STEVIE:scripts/marketing_report/google_auth.py` | `e3f42d2` | `92c3d715e28338de6aaef8b9c6241f8ac8c1abe14810b6ec3a841a5f1c272f8e` | `bc6115a7feb84c96743b96c71d1c4284ee80f65804f1dc59bd1ab494b03d84c5` | PORT |
-| `scripts/docs_read.py` | `-` | `-` | `-` | `f7b9bb0e2e418739361bc4c2f8ac79a6c5f58f61890bd1a08b86f9cd2b77ec5b` | NEW |
+| `scripts/docs_read.py` | `-` | `-` | `-` | `4780fe9236bd6e9b165c6b2932196d7b333fb3e41d35f86111fe1c2027c3ba72` | NEW |
 | `scripts/link_docs.py` | `-` | `-` | `-` | `9d32f6e2d9eb621758be491442c0497b0cffbe32f5bede9ab5eb84bdb82a49c7` | NEW |
 | `scripts/calendar_next.py` | `-` | `-` | `-` | `d703104020d0751f994fd4c18168e7e81e0c821272187b79243abd1aa0ef8fe2` | NEW |
 | `scripts/make_fixtures.py` | `-` | `-` | `-` | `133fc4b384b7c340b311f0f1c510fdc47220f5c999b64ae15c1b281990502374` | NEW |
 | `tests/test_calendar_next.py` | `-` | `-` | `-` | `39b93a6afe224422e711ce8b14e1edb8c4ba08c99d0544ff214f8f42dce37c22` | NEW |
-| `tests/test_docs_read.py` | `-` | `-` | `-` | `13b4b70d1ed06cd040cfadb4439577e2b54b8da7671b0e75dd7b5e5bf2764881` | NEW |
+| `tests/test_docs_read.py` | `-` | `-` | `-` | `eaced801952ec08874cba7972d324fcf9e146dd957cb3541da9c05295e561242` | NEW |
+| `scripts/docs_propose.py` | `-` | `-` | `-` | `8ba8feec1d3cd554091e88a76e7601b1046946216a415a915f7409ca65f2053f` | NEW |
+| `scripts/docs_edit.py` | `-` | `-` | `-` | `214ccc990e9ef78ca722e4d2cf5bb7630fdf32d2be3ee1932efd5e9704affa3d` | NEW |
+| `scripts/docs_reconcile.py` | `-` | `-` | `-` | `ec49c83eeb1389f4ccc51948be386659dbe83f54e7e1a24693dec08855235949` | NEW |
+| `scripts/acceptance.py` | `-` | `-` | `-` | `1e8325250af5090ac26048270d96891722106d2c665307124606871f3312ecbc` | NEW |
+| `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `fc9e3d50711f89cd5923717e10350d9d4529b02b80698401bb72e3ab592bd347` | PORT |
 <!-- end of manifest table -->
 
 ## What changed, and why

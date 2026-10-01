@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "about": [
+    "The machine-readable state of every proposed deviation from Taylor's blueprint.",
+    "docs/DEVIATIONS.md is the memo Taylor reads; this file is what the code checks.",
+    "",
+    "It lives under context/architecture/ on purpose. protect-architecture.py lets this",
+    "file change only when Taylor's own latest message says `architecture change ok`,",
+    "so approving a deviation is itself an architecture change with his authority,",
+    "and the approval lands in CHANGE-LOG.md in the same turn.",
+    "",
+    "`gates` names what stays switched off until the deviation is approved.",
+    "scripts/docs_edit.py refuses every write to a live (non-fixture) Doc while any",
+    "deviation gating `live_doc_writes` is not `approved`. An unreadable file is read",
+    "as nothing approved."
+  ],
+  "deviations": {
+    "D-1": {
+      "title": "The Action Register is a local SQLite database on Taylor's machine",
+      "affects": "blueprint s.3, Proposed technical implementation (reuse an existing GRETA store first; Google Sheets as fallback)",
+      "requirement_type": "proposed implementation, not a protected requirement",
+      "decider": "Taylor",
+      "status": "proposed",
+      "approved_by": null,
+      "approved_at": null,
+      "gates": ["live_doc_writes"],
+      "memo": "docs/DEVIATIONS.md, D-1"
+    },
+    "D-2": {
+      "title": "Request gmail.compose in the Phase 1 consent, to avoid a second consent in Phase 2",
+      "affects": "nothing in the blueprint; a consent-scope decision for the build",
+      "requirement_type": "implementation dependency",
+      "decider": "Mike",
+      "status": "undecided",
+      "approved_by": null,
+      "approved_at": null,
+      "gates": [],
+      "memo": "docs/DEVIATIONS.md, D-2"
+    }
+  }
+}

@@ -121,6 +121,11 @@ class Completion(unittest.TestCase):
     def test_an_unknown_chip_in_status_is_never_done(self):
         self.assertEqual(dr.classify_status("Done", [{"type": "unknown"}]), "ambiguous")
 
+    def test_a_chip_the_api_cannot_read_is_unreadable_not_open(self):
+        # A Status dropdown chip arrives as the U+E907 placeholder. Its value is
+        # invisible to the API, so it must be reported, not read as "open".
+        self.assertEqual(dr.classify_status(dr.CHIP_PLACEHOLDER, [{"type": "unknown"}]), "unreadable")
+
     def test_checklist_line_markers(self):
         for text, want in [("Send the deck (done 2026-10-01)", "checked"), ("[x] Send the deck", "checked"),
                            ("Send the deck [A-0003]", "open"), ("Send the deck, done", "checked")]:

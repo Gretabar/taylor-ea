@@ -42,11 +42,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import importlib
 import importlib.util
 import json
 import os
 import socket
-import sqlite3
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -170,7 +170,10 @@ def check_doc_allowlist(problems: list) -> int:
             ea_db.migrate(conn)
             now = ea_db.now_iso()
             conn.execute("INSERT INTO docs (doc_id, title, fixture, created_at) VALUES ('FIX1','[FIXTURE] x',1,?)", (now,))
-            conn.execute("INSERT INTO docs (doc_id, title, fixture, created_at) VALUES ('LIVE1','Kaed x Taylor',0,?)", (now,))
+            conn.execute("INSERT INTO docs (doc_id, title, fixture, map_confirmed, created_at)"
+                         " VALUES ('LIVE1','Kaed x Taylor',0,1,?)", (now,))
+            conn.execute("INSERT INTO docs (doc_id, title, fixture, map_confirmed, created_at)"
+                         " VALUES ('LIVE2','Casey x Taylor',0,0,?)", (now,))
             conn.commit()
 
             def refused(doc_id: str, fixture_mode: bool, deviations: dict) -> tuple[bool, str]:
@@ -185,6 +188,7 @@ def check_doc_allowlist(problems: list) -> int:
                 ("block: a registered LIVE Doc while EA_FIXTURE_MODE=1", "LIVE1", True, approved, True),
                 ("block: a live Doc before D-1 is approved", "LIVE1", False, proposed, True),
                 ("block: a live Doc when the deviations file is unreadable", "LIVE1", False, {}, True),
+                ("block: a live Doc whose section map Taylor has not confirmed", "LIVE2", False, approved, True),
                 ("pass: a registered fixture Doc in fixture mode", "FIX1", True, proposed, False),
                 ("pass: a live Doc once D-1 is approved (fixture mode off)", "LIVE1", False, approved, False),
             ]:
@@ -617,12 +621,16 @@ CHECKS = {
 }
 
 # One mutation per gate: the decision function forced to "allow everything".
+# Hook files are patched as they load; modules are patched in place.
 MUTATIONS = {
-    "delivery-agent": ("require-delivery-agent.py", "decide", lambda *a, **k: (True, "mutated")),
-    "protect-architecture": ("protect-architecture.py", "decide", lambda *a, **k: (True, "mutated", "")),
-    "no-cloud": ("no-cloud.py", "classify_command", lambda *a, **k: None),
-    "classify-and-place": ("classify-and-place.py", "placement_ok", lambda *a, **k: True),
-    "approval": ("require-approval.py", "is_egress", lambda *a, **k: (False, "")),
+    "delivery-agent": ("hook", "require-delivery-agent.py", "decide", lambda *a, **k: (True, "mutated")),
+    "protect-architecture": ("hook", "protect-architecture.py", "decide", lambda *a, **k: (True, "mutated", "")),
+    "no-cloud": ("hook", "no-cloud.py", "classify_command", lambda *a, **k: None),
+    "classify-and-place": ("hook", "classify-and-place.py", "placement_ok", lambda *a, **k: True),
+    "approval": ("hook", "require-approval.py", "is_egress", lambda *a, **k: (False, "")),
+    "doc-allowlist": ("module", "docs_edit", "check_allowlist", lambda *a, **k: None),
+    "content": ("module", "validate_content_rules", "check_doc_bound", lambda *a, **k: []),
+    "watchdog": ("module", "notify_owner", "_staleness", lambda *a, **k: ([], None)),
 }
 
 
@@ -661,25 +669,28 @@ def mutation_test() -> int:
     global VERBOSE
     VERBOSE = False
     undetected = []
-    for gate, (filename, attr, replacement) in MUTATIONS.items():
+    for gate, (where, target, attr, replacement) in MUTATIONS.items():
         real_loader = load_hook
 
-        def mutated_loader(name, _filename=filename, _attr=attr, _replacement=replacement):
+        def mutated_loader(name, _filename=target, _attr=attr, _replacement=replacement):
             module = real_loader(name)
             if name == _filename:
                 setattr(module, _attr, _replacement)
             return module
 
         problems: list[Problem] = []
-        with mock.patch(f"{__name__}.load_hook", side_effect=mutated_loader):
-            with contextlib.redirect_stdout(open(os.devnull, "w")):
-                try:
-                    CHECKS[gate](problems)
-                except Exception as exc:  # noqa: BLE001
-                    # swallow: a crash under mutation still counts as "detected"
-                    problems.append(Problem(gate, "crashed under mutation", "", str(exc)))
+        if where == "hook":
+            patcher = mock.patch(f"{__name__}.load_hook", side_effect=mutated_loader)
+        else:
+            patcher = mock.patch.object(importlib.import_module(target), attr, replacement)
+        with patcher, contextlib.redirect_stdout(open(os.devnull, "w")):
+            try:
+                CHECKS[gate](problems)
+            except Exception as exc:  # noqa: BLE001
+                # swallow: a crash under mutation still counts as "detected"
+                problems.append(Problem(gate, "crashed under mutation", "", str(exc)))
         caught = len(problems)
-        print(f"  mutation: {gate:<22} {filename}:{attr} forced to allow -> self-test reports "
+        print(f"  mutation: {gate:<22} {target}:{attr} forced to allow -> self-test reports "
               f"{caught} failing case(s)" + ("" if caught else "   UNDETECTED"))
         if not caught:
             undetected.append(gate)
