@@ -1,5 +1,33 @@
 """Shared dispatch detection for STEVIE's hooks.
 
+PORTED HERE (it was VERBATIM from PIPER, which had it from STEVIE). Three changes, all
+recorded in VENDORED-FROM.md, all worth taking upstream:
+
+  1. A SLASH COMMAND IS A TURN BOUNDARY. Claude Code records `/add Kaed ...` as a user
+     row holding only <command-message>, <command-name> and <command-args> blocks,
+     followed by an isMeta row with the expanded prompt (checked against real
+     transcripts, 2026-10-01). Stripping those blocks left the row empty, so it was not
+     a boundary, and for a user who works entirely in slash commands the "turn" ran
+     back to his last plain-text message: the roll call after /morning reported the
+     previous /add's dispatches, and require-dispatch let a solo write through because
+     an EARLIER command had dispatched. A row with a <command-name> block is now a
+     boundary, and the command and its arguments count as typed text. Skill
+     invocations never produce such a row (they arrive as a tool_result), and
+     harness-injected rows (system-reminder, task-notification, local-command-stdout)
+     are still never boundaries.
+
+  2. THE TURN'S TOOL USES ARE COLLECTED IN THE SAME PASS. TurnContext now also carries
+     every main-thread tool_use of the turn (name and input) and how many lines in
+     the turn failed to parse. The roll call decides "did this turn write?" from the
+     same walk that finds its dispatches, so the two can never disagree about where
+     the turn began.
+
+  3. A COMPACTION SUMMARY IS NOT A TURN BOUNDARY. Compaction appends a compact_boundary
+     system row and a type=user summary row (isCompactSummary) to the same file. When
+     it fires mid-turn, the summary used to end the walk, hiding the turn's earlier
+     dispatches (a false SOLO) and, once the roll call counts writes, its earlier
+     writes (a false "nothing written").
+
 Three hooks need the same fact -- "which agents were dispatched since Mike last
 spoke?" -- and the parse that answers it already existed once, inline, in
 skill_proposer.py. Copying it a third and fourth time would guarantee the four
@@ -16,8 +44,8 @@ TranscriptUnreadable; only a genuinely readable transcript returns a list.
 Transcript shape (verified against ~/.claude/projects/<slug>/*.jsonl, v2.1.228):
   - one JSON object per line; `type` is user | assistant | attachment | system
   - a real user turn is type=user, isSidechain absent/false, no isMeta, and
-    carries at least one `text` content block. The same type=user row shape also
-    carries tool_result blocks, which are not turn boundaries
+    carries at least one `text` content block, or is a slash command row. The same
+    type=user row shape also carries tool_result blocks, which are not turn boundaries
   - subagent conversations live in their OWN file under <session>/subagents/ and
     every row there has isSidechain: true
 """
@@ -34,11 +62,14 @@ from pathlib import Path
 # is not a cosmetic error: a backgrounded agent's own completion notification
 # arrives this way, so the notification would erase the dispatch that produced
 # it and the roll call would report SOLO on a properly dispatched turn.
-SYNTHETIC_BLOCK = re.compile(
-    r"<(system-reminder|task-notification|ide_selection|command-name"
-    r"|command-message|command-args|local-command-stdout)>.*?</\1>",
+HARNESS_BLOCK = re.compile(
+    r"<(system-reminder|task-notification|ide_selection|local-command-stdout)>.*?</\1>",
     re.S | re.I,
 )
+
+# A slash command the user typed. The name and the arguments are what he typed;
+# <command-message> is the harness's own "x is running" text and is not.
+COMMAND_BLOCK = re.compile(r"<(command-name|command-message|command-args)>(.*?)</\1>", re.S | re.I)
 
 
 class TranscriptUnreadable(Exception):
@@ -57,6 +88,8 @@ class TurnContext:
     last_user_text: str = ""
     is_sidechain: bool = False
     found_turn_boundary: bool = False
+    tool_uses: list[dict] = field(default_factory=list)
+    unparsed_lines: int = 0
 
 
 def _read_lines(transcript_path: str | Path | None) -> list[str]:
@@ -94,29 +127,51 @@ def _text_of(message: dict) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def _human_text(message: dict) -> str:
-    """Only the part of a user row Mike actually typed.
+def _typed(message: dict) -> tuple[bool, str]:
+    """(is this a turn the user started, what he typed including a command and its arguments)."""
+    text = HARNESS_BLOCK.sub(" ", _text_of(message))
+    commands = COMMAND_BLOCK.findall(text)
+    plain = COMMAND_BLOCK.sub(" ", text).strip()
+    is_command = any(tag.lower() == "command-name" for tag, _ in commands)
+    typed_parts = [value for tag, value in commands if tag.lower() in ("command-name", "command-args")]
+    typed = " ".join(" ".join([plain, *typed_parts]).split())
+    return bool(plain) or is_command, typed
 
-    Harness-injected blocks are stripped first. What remains is the human turn;
-    if nothing remains, the row is synthetic and is not a boundary at all.
-    """
-    return SYNTHETIC_BLOCK.sub(" ", _text_of(message)).strip()
+
+def _human_text(message: dict) -> str:
+    """Only the part of a user row Mike actually typed, command arguments included."""
+    return _typed(message)[1]
 
 
 def _is_real_user_turn(event: dict) -> bool:
-    """True only for a message Mike actually typed.
+    """True only for a message Mike actually typed, a slash command included.
 
-    Excludes sidechain rows (a subagent's own prompt), meta rows, the type=user
-    rows that exist solely to carry a tool_result back to the model, and rows
-    whose entire text is harness-injected (see SYNTHETIC_BLOCK).
+    Excludes sidechain rows (a subagent's own prompt), meta rows (a command's
+    expanded prompt among them), the type=user rows that exist solely to carry a
+    tool_result back to the model, rows whose entire text is harness-injected, and
+    the summary a compaction writes (isCompactSummary): an auto-compaction can land
+    mid-turn, and treating its summary as a turn start would hide everything the
+    turn did before it.
     """
     if event.get("type") != "user":
         return False
     if event.get("isSidechain") is True:
         return False
-    if event.get("isMeta"):
+    if event.get("isMeta") or event.get("isCompactSummary"):
         return False
-    return bool(_human_text(event.get("message") or {}))
+    message = event.get("message")
+    return isinstance(message, dict) and _typed(message)[0]
+
+
+def _tool_uses(event: dict) -> list[dict]:
+    """{"name", "input"} of every tool_use block in one main-thread assistant event."""
+    if event.get("type") != "assistant" or event.get("isSidechain") is True:
+        return []
+    message = event.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    return [{"name": block.get("name"), "input": block.get("input")}
+            for block in content or []
+            if isinstance(block, dict) and block.get("type") == "tool_use"]
 
 
 def _agent_calls(event: dict) -> list[str]:
@@ -146,6 +201,7 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
 
     parsed_any = False
     dispatches_reversed: list[str] = []
+    tool_uses_reversed: list[dict] = []
 
     for line in reversed(lines):
         try:
@@ -153,9 +209,12 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
         except json.JSONDecodeError:
             # One truncated line (a transcript mid-flush) is normal and is not
             # the same fact as a file that holds no JSON at all; the
-            # parsed_any check below covers the latter.
+            # parsed_any check below covers the latter. It IS counted, because a
+            # line nobody could read may have been a tool call.
+            ctx.unparsed_lines += 1
             continue
         if not isinstance(event, dict):
+            ctx.unparsed_lines += 1
             continue
         parsed_any = True
 
@@ -168,6 +227,7 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
             break
 
         dispatches_reversed.extend(reversed(_agent_calls(event)))
+        tool_uses_reversed.extend(reversed(_tool_uses(event)))
 
     if not parsed_any:
         raise TranscriptUnreadable(
@@ -175,6 +235,7 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
         )
 
     ctx.dispatches = [s for s in reversed(dispatches_reversed) if s]
+    ctx.tool_uses = list(reversed(tool_uses_reversed))
     return ctx
 
 

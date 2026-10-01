@@ -6,16 +6,18 @@ _health.py so this bar and the roll call's fallback line cannot disagree, and th
 tick job is ea_tick.
 
     NAME  ticks OK (2h ago)   REED>PAGE>WREN (3)     green
+    NAME  ticks OK (2h ago)   read only              dim     (/owe, /morning)
+    NAME  ticks OK (2h ago)   -- SOLO --             yellow  (no dispatch, and it wrote)
     NAME  LAST TICK 6 DAYS AGO                       red
 
 WHETHER THE VS CODE EXTENSION RENDERS THIS IS UNVERIFIED. team-rollcall.py carries
 the tick line too, as the fallback.
 
-Two constraints, both inherited: it must AGREE with the roll call (both read
-_transcript.py), and it runs on essentially every repaint (300ms debounce, an
-in-flight script is cancelled), so the transcript parse is cached on
-(path, size, mtime_ns) and the warm path does not import _transcript. The local
-imports inside the uncached helpers are the optimisation; do not hoist them.
+Two constraints, both inherited: it must AGREE with the roll call (both take the
+turn's verdict from _activity.py, which reads _transcript.py), and it runs on
+essentially every repaint (300ms debounce, an in-flight script is cancelled), so the
+verdict is cached on (path, size, mtime_ns) and the warm path imports neither. The
+local imports inside the uncached helpers are the optimisation; do not hoist them.
 
 The output contract is narrow and absolute: exactly one line, never a traceback,
 always exit 0.
@@ -41,7 +43,7 @@ BRIGHT_YELLOW = "\033[1;33m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-CACHE_FORMAT = 1
+CACHE_FORMAT = 2
 
 
 def _color_enabled() -> bool:
@@ -106,29 +108,34 @@ def _write_cache(path: str, entry: dict) -> None:
             pass  # swallow: nothing to clean up if the temp file never landed
 
 
-def _roster_uncached(transcript_path: str) -> list[str] | None:
-    from _transcript import TranscriptUnreadable, roster, turn_context
+def _verdict_uncached(transcript_path: str) -> tuple[str, list[str]]:
+    from _activity import verdict_for
 
-    try:
-        return roster(turn_context(transcript_path).dispatches)
-    except TranscriptUnreadable:
-        return None
+    verdict = verdict_for(transcript_path)
+    return verdict.kind, list(verdict.names)
 
 
-def render(label: str, names: list[str] | None, hours: float | None, color: bool) -> str:
+def render(label: str, kind: str | None, names: list[str], hours: float | None, color: bool) -> str:
+    """One line. `kind` is an _activity verdict; anything else renders as unknown.
+
+    The kinds are spelled out rather than imported so the warm path imports nothing;
+    the guardrail self-test renders every outcome and goes red if the two drift.
+    """
     tick = _health.render_age(hours)
     if not _health.healthy(hours):
         # The unhealthy bar carries the tick and nothing else.
         return _paint(f"{label}  {tick}", RED, color)
-    if names is None:
-        team, team_color = "team ?", DIM
-    elif not names:
-        team, team_color = "-- SOLO --", BRIGHT_YELLOW
-    else:
+    if kind == "dispatched" and names:
         chain = ">".join(names[-MAX_SHOWN:])
         if len(names) > MAX_SHOWN:
             chain = f"+{len(names) - MAX_SHOWN}>{chain}"
         team, team_color = f"{chain}  ({len(names)})", GREEN
+    elif kind == "wrote":
+        team, team_color = "-- SOLO --", BRIGHT_YELLOW
+    elif kind == "read_only":
+        team, team_color = "read only", DIM
+    else:
+        team, team_color = "team ?", DIM
     return _paint(f"{label}  {tick}", GREEN, color) + "  " + _paint(team, team_color, color)
 
 
@@ -139,27 +146,27 @@ def status(color: bool) -> str:
 
     db_stamp = _db_stamp()
     if not transcript_path or _stamp(transcript_path) == [-1, -1]:
-        return render(label, None, _health.tick_age_hours(), color)
+        return render(label, None, [], _health.tick_age_hours(), color)
 
     transcript_stamp = _stamp(transcript_path)
     cache_path = _cache_file(transcript_path)
     key = {
-        "detector": _stamp(os.path.join(HERE, "_transcript.py")),
+        "detector": _stamp(os.path.join(HERE, "_transcript.py")) + _stamp(os.path.join(HERE, "_activity.py")),
         "transcript": transcript_stamp,
         "db": db_stamp,
     }
     entry = _read_cache(cache_path, key)
     if entry is not None:
         names = entry.get("names")
-        if names is not None and not isinstance(names, list):
-            names = None
-        return render(label, names, entry.get("tick_hours"), color)
+        if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+            return render(label, None, [], entry.get("tick_hours"), color)
+        return render(label, entry.get("kind"), names, entry.get("tick_hours"), color)
 
-    names = _roster_uncached(transcript_path)
+    kind, names = _verdict_uncached(transcript_path)
     hours = _health.tick_age_hours()
     if _stamp(transcript_path) == transcript_stamp and _db_stamp() == db_stamp:
-        _write_cache(cache_path, {"fmt": CACHE_FORMAT, **key, "names": names, "tick_hours": hours})
-    return render(label, names, hours, color)
+        _write_cache(cache_path, {"fmt": CACHE_FORMAT, **key, "kind": kind, "names": names, "tick_hours": hours})
+    return render(label, kind, names, hours, color)
 
 
 def main() -> int:

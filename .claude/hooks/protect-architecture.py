@@ -26,14 +26,16 @@ LAYER B, CODE AND PERMISSIONS: .claude/** (settings, hooks, agents, commands,
 THE MARKER ITSELF is blocked as a write target everywhere. It is created by hand,
 outside Claude Code, on Mike's machine.
 
-WHY THE OVERRIDE IS READ HERE AND NOT VIA _transcript.turn_context. That parser
-skips slash-command rows when it looks for the turn boundary, which is right for
-"which agents ran this turn" and wrong for an authority check: a phrase typed in
-an earlier plain message would stay live through every later /add. So this file
-finds the LATEST typed turn itself, slash commands included, and honours the
-phrase only there (plain text or the command's arguments). Harness-injected
-blocks (system-reminder, task-notification) are stripped first, so a document
-that merely quotes the phrase does not grant anything.
+WHY THE OVERRIDE IS READ HERE AND NOT VIA _transcript.turn_context. When this gate
+was written that parser skipped slash-command rows when it looked for the turn
+boundary, which for an authority check means a phrase typed in an earlier plain
+message stays live through every later /add. So this file finds the LATEST typed
+turn itself, slash commands included, and honours the phrase only there (plain
+text or the command's arguments). turn_context has since been fixed to agree (see
+_transcript.py); this reader stays because it is the one the layer-A fixtures
+prove, and folding the two together is its own change. Harness-injected blocks
+(system-reminder, task-notification) are stripped first, so a document that
+merely quotes the phrase does not grant anything.
 
 SHELL COVERAGE IS BEST EFFORT AND SAYS SO. Write and Edit are the paths a model
 reaches for, and they are covered exactly. For Bash and PowerShell this catches

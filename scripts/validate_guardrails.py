@@ -23,15 +23,21 @@ GATES COVERED (the plan's list, plus the ones that keep them honest):
   content               em dash in Doc- or Taylor-bound text, emoji anywhere
   wiring                every gate is wired, shell gates match PowerShell too
   watchdog              the out-of-band liveness check fires and never raises
+  rollcall              the roll call's four outcomes: a read-only solo turn gets the
+                        quiet line, a solo write gets the SOLO block, a dispatch gets
+                        the TEAM line, an unreadable turn gets UNVERIFIED; the status
+                        line and docs/FOR-TAYLOR.md agree with it
 
 WHAT IS NOT COVERED, stated: this drives the pure decision function inside each
 gate. It does not prove Claude Code invokes the hook (wiring proves it is
 configured, not that it fires) and it cannot test a model. The by-hand session
 table in INSTALL.md is the live half.
 
---mutation-test breaks each gate's decision function on purpose (always allow) and
-asserts this self-test then reports failures for that gate. A self-test that stays
-green when the gate is removed is not a test.
+--mutation-test breaks each gate on purpose and asserts this self-test then reports
+failures for that gate. For most gates the break is "always allow". The roll call
+gets one break per outcome, each naming the case that must go red, because a roll
+call that says the wrong reassuring thing is not caught by any single mutation. A
+self-test that stays green when the gate is removed is not a test.
 
 Usage:
     python scripts/validate_guardrails.py --self-test [--verbose] [--only GATE ...]
@@ -44,11 +50,13 @@ import argparse
 import contextlib
 import importlib
 import importlib.util
+import itertools
 import json
 import os
 import socket
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
@@ -95,12 +103,12 @@ def expect(problems: list, rule: str, label: str, want_block: bool, blocked: boo
     return 1
 
 
-def expect_equal(problems: list, rule: str, label: str, want, got) -> int:
+def expect_equal(problems: list, rule: str, label: str, want, got, detail: str = "") -> int:
     ok = want == got
     if VERBOSE:
         print(f"    {'ok  ' if ok else 'FAIL'} {str(got)[:8]:8} {rule}: {label}")
     if not ok:
-        problems.append(Problem(rule, label, str(want), str(got)))
+        problems.append(Problem(rule, label, str(want), str(got), detail))
     return 1
 
 
@@ -216,11 +224,12 @@ def check_doc_allowlist(problems: list) -> int:
 # protect-architecture, both layers
 # --------------------------------------------------------------------------
 
-def _transcript(rows: list[dict]) -> str:
+def _transcript(rows: list) -> str:
+    """A transcript file. A str row is written as it is, so a fixture can hold a broken line."""
     handle = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
     with handle:
         for row in rows:
-            handle.write(json.dumps(row) + "\n")
+            handle.write((row if isinstance(row, str) else json.dumps(row)) + "\n")
     return handle.name
 
 
@@ -608,6 +617,168 @@ def check_watchdog(problems: list) -> int:
     return cases
 
 
+# --------------------------------------------------------------------------
+# rollcall (team-rollcall.py, with _activity.py and statusline-ea.py)
+# --------------------------------------------------------------------------
+
+def _command(name: str, args: str = "") -> list[dict]:
+    """A slash command as Claude Code records it: the typed row, then its expansion as an isMeta row."""
+    typed = (f"<command-message>{name} is running</command-message>\n"
+             f"<command-name>/{name}</command-name>\n<command-args>{args}</command-args>")
+    return [{"type": "user", "message": {"role": "user", "content": typed}},
+            {"type": "user", "isMeta": True, "message": {"role": "user", "content": [
+                {"type": "text", "text": f"# /{name}\n\nRun the script and report it.\n\n{args}"}]}}]
+
+
+_CALL_IDS = itertools.count(1)
+
+
+def _tool(name: str, tool_input) -> list[dict]:
+    """One main-thread tool call and the row that carries its result back."""
+    call_id = f"toolu_{next(_CALL_IDS):04d}"
+    return [{"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": call_id, "name": name, "input": tool_input}]}},
+            {"type": "user", "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": call_id, "content": "ok"}]}}]
+
+
+def _bash(command: str) -> list[dict]:
+    return _tool("Bash", {"command": command})
+
+
+def _say(text: str) -> dict:
+    return {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": text}]}}
+
+
+def check_rollcall(problems: list) -> int:
+    hook = load_hook("team-rollcall.py")
+    bar = load_hook("statusline-ea.py")
+    import _activity
+
+    cases = 0
+    team = "TEAM  |  REED -> PAGE -> WREN  (3 dispatched)"
+    add_action = ('python scripts/register.py add-action --text "Send Casey the bonus structure"'
+                  " --owner kaed --due 2026-10-02 --counterpart kaed")
+    capture = [*_command("add", "Kaed: send Casey the bonus structure by Friday"),
+               *_tool("Agent", {"subagent_type": "reed", "prompt": "capture it"}),
+               *_tool("Agent", {"subagent_type": "page", "prompt": "propose it"}),
+               *_tool("Agent", {"subagent_type": "wren", "prompt": "deliver it"}),
+               _say("Captured A-0001; WREN wrote it to Kaed's Doc.")]
+    owe = [*_command("owe"), *_bash("python scripts/docs_reconcile.py"),
+           *_bash("python scripts/register.py owed"), _say("You owe Casey one thing.")]
+    morning = [*_command("morning"), *_bash("python scripts/docs_reconcile.py"),
+               *_bash("python scripts/register.py morning"), _say("Ticks OK. One thing due Friday.")]
+    unreadable_use = {"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": "toolu_x", "name": "Bash", "input": "python scripts/register.py owed"}]}}
+
+    tokens = {hook.SOLO: "SOLO", hook.READ_ONLY_LINE: "QUIET", hook.UNVERIFIED: "UNVERIF", team: "TEAM"}
+    shows = {"SOLO": "-- SOLO --", "QUIET": "read only", "UNVERIF": "team ?", "TEAM": "REED>PAGE>WREN  (3)"}
+    fixtures = [
+        ("read-only solo turn (/owe: reconcile, register.py owed) -> quiet line", owe, "QUIET"),
+        ("read-only solo turn after a dispatched /add (/morning) -> quiet line, not the /add's team",
+         capture + morning, "QUIET"),
+        ("a chat-only answer, no tool at all -> quiet line", [_user("what does /owe do?"), _say("It lists...")], "QUIET"),
+        ("solo turn with a register add-action -> SOLO block",
+         [_user("Kaed owes me the bonus structure by Friday"), *_bash(add_action), _say("Captured.")], "SOLO"),
+        ("solo turn with a Write -> SOLO block",
+         [_user("note that down"), *_tool("Write", {"file_path": "C:/EA/state/records/n.json", "content": "{}"}),
+          _say("Noted.")], "SOLO"),
+        ("a compaction in the middle of a turn does not hide the write before it -> SOLO block",
+         [_user("Kaed owes me the bonus structure by Friday"), *_bash(add_action),
+          {"type": "system", "subtype": "compact_boundary"},
+          {"type": "user", "isCompactSummary": True, "isVisibleInTranscriptOnly": True,
+           "message": {"role": "user", "content": "This session is being continued from a previous conversation."}},
+          *_bash("python scripts/register.py owed"), _say("Captured, and here is what you owe.")], "SOLO"),
+        ("solo turn whose write a gate refused (docs_edit.py on the main thread) -> SOLO block, attempts count",
+         [_user("put it in Kaed's Doc"), *_bash("python scripts/docs_edit.py add-action --doc X --proposal p.json"),
+          _say("Blocked.")], "SOLO"),
+        ("dispatched turn -> TEAM line", capture, "TEAM"),
+        ("dispatched turn where the orchestrator also ran add-action -> TEAM line, unchanged",
+         capture[:-1] + _bash(add_action) + [_say("done")], "TEAM"),
+        ("a background agent's completion notification is not a new turn -> TEAM line",
+         capture + [_user("<task-notification>wren finished</task-notification>"), _say("WREN is done.")], "TEAM"),
+        ("unreadable transcript (no such file) -> UNVERIFIED", None, "UNVERIF"),
+        ("unreadable transcript (no line parses) -> UNVERIFIED", ["{not json", "also not json"], "UNVERIF"),
+        ("a solo tool use that cannot be read -> UNVERIFIED, never the quiet line",
+         [_user("what do I owe?"), unreadable_use, _say("...")], "UNVERIF"),
+        ("a line in this turn that does not parse -> UNVERIFIED, never the quiet line",
+         [*_command("owe"), '{"type": "assistant", "message": {"content": [{"type": "tool_u', _say("...")], "UNVERIF"),
+        ("a broken line in an EARLIER turn does not taint this one -> quiet line",
+         ['{"type": "assistant", "trunc', _say("earlier"), *owe], "QUIET"),
+    ]
+    missing = str(Path(tempfile.gettempdir()) / "ea-guardrails-no-such-transcript.jsonl")
+    written = []
+    try:
+        for label, rows, want in fixtures:
+            path = missing if rows is None else _transcript(rows)
+            if rows is not None:
+                written.append(path)
+            got = tokens.get(hook.team_block(path), "OTHER")
+            cases += expect_equal(problems, "rollcall", label, want, got,
+                                  f"why: {_activity.verdict_for(path).why or '-'}")
+            # The status line must say the same thing about the same turn.
+            kind, names = bar._verdict_uncached(path)
+            rendered = bar.render("EA", kind, names, 1.0, False)
+            shown = shows[want] if rendered.endswith("  " + shows[want]) else rendered
+            cases += expect_equal(problems, "rollcall", f"status line shows {shows[want]!r}: {label.split(' -> ')[0]}",
+                                  shows[want], shown)
+    finally:
+        for path in written:
+            os.unlink(path)
+
+    # What counts as writing, command by command. "write" means the SOLO block.
+    for label, command, want in [
+        ("register.py add-action", add_action, "write"),
+        ("register.py complete, after a global flag", "python scripts/register.py --json complete A-0012 --via chat", "write"),
+        ("register.py update-action through PowerShell's call operator",
+         "& C:\\Python311\\python.exe scripts\\register.py update-action A-1 --field due --value x --actor t", "write"),
+        ("register.py add-topic wrapped in powershell -Command",
+         'powershell -Command "python scripts/register.py add-topic --person kaed --text x"', "write"),
+        ("register.py needs-input resolve", "python scripts/register.py needs-input resolve Q-0003 --answer kaed", "write"),
+        ("register.py seed", "python scripts/register.py seed --roster", "write"),
+        ("register.py alias (it changes who a name resolves to)", "python scripts/register.py alias --person kaed --add K", "write"),
+        ("register.py needs-input add (it opens a question)",
+         'python scripts/register.py needs-input add --question "who?"', "write"),
+        ("a register subcommand nobody classified counts as a write", "python scripts/register.py purge A-0001", "write"),
+        ("docs_propose.py after a cd", "cd C:\\EA; python scripts\\docs_propose.py add-topic --ref T-0001", "write"),
+        ("docs_edit.py", "python scripts/docs_edit.py mark-done --doc X --proposal p.json", "write"),
+        ("link_docs.py --add", "python scripts/link_docs.py --add 1AbC --person kaed", "write"),
+        ("link_docs.py --confirm (it unlocks live writes to that Doc)", "python scripts/link_docs.py --confirm --doc 1AbC", "write"),
+        ("calendar_next.py --link-series", "python scripts/calendar_next.py --link-series abc --person kaed", "write"),
+        ("the register imported inline", 'python -c "import register; register.add_action(None)"', "write"),
+        ("a SQL delete against the register", "sqlite3 state/ea.db \"DELETE FROM actions WHERE ref='A-0013'\"", "write"),
+        ("an env prefix in front of add-action", "EA_FIXTURE_MODE=1 python scripts/register.py complete A-1 --via chat", "write"),
+        ("register.py owed", "python scripts/register.py owed --person casey", "read"),
+        ("register.py owed history", "python scripts/register.py owed history A-0012", "read"),
+        ("register.py history", "python scripts/register.py history A-0012", "read"),
+        ("register.py morning", "python scripts/register.py morning", "read"),
+        ("register.py resolve-date", 'python scripts/register.py resolve-date "Friday" --from 2026-10-01', "read"),
+        ("register.py resolve-person", 'python scripts/register.py resolve-person "Kaed"', "read"),
+        ("register.py needs-input list", "python scripts/register.py needs-input list", "read"),
+        ("register.py --self-test (its own temporary database)", "python scripts/register.py --self-test", "read"),
+        ("docs_reconcile.py then register.py morning (what /morning runs)",
+         "python scripts/docs_reconcile.py && python scripts/register.py morning", "read"),
+        ("link_docs.py --status", "python scripts/link_docs.py --status", "read"),
+        ("calendar_next.py --refresh (a sync, like the reconcile)", "python scripts/calendar_next.py --refresh", "read"),
+        ("ea_doctor.py", "python scripts/ea_doctor.py", "read"),
+        ("grep naming a writer subcommand", "grep -n add-action scripts/register.py", "read"),
+        ("reading the writer's source in PowerShell", "Get-Content scripts\\docs_edit.py | Select-String writeControl", "read"),
+        ("a SELECT against the register", 'sqlite3 state/ea.db "SELECT ref, updated_at FROM actions"', "read"),
+        ("owed redirected to a file", "python scripts/register.py owed > owed.txt", "read"),
+    ]:
+        got = "write" if _activity.shell_writes(command) else "read"
+        cases += expect_equal(problems, "rollcall", f"{want}: {label}", want, got)
+
+    # Taylor's guide quotes the roll call. If either side changes alone, he is told to
+    # look for a line that never appears.
+    guide = (REPO_ROOT / "docs" / "FOR-TAYLOR.md").read_bytes().decode("utf-8")
+    cases += expect_equal(problems, "rollcall", "docs/FOR-TAYLOR.md quotes the quiet line word for word",
+                          True, hook.READ_ONLY_LINE in guide)
+    cases += expect_equal(problems, "rollcall", "docs/FOR-TAYLOR.md quotes the SOLO heading word for word",
+                          True, hook.SOLO.splitlines()[1] in guide)
+    return cases
+
+
 CHECKS = {
     "delivery-agent": check_delivery_agent,
     "doc-allowlist": check_doc_allowlist,
@@ -618,20 +789,87 @@ CHECKS = {
     "content": check_content,
     "wiring": check_wiring,
     "watchdog": check_watchdog,
+    "rollcall": check_rollcall,
 }
 
-# One mutation per gate: the decision function forced to "allow everything".
-# Hook files are patched as they load; modules are patched in place.
-MUTATIONS = {
-    "delivery-agent": ("hook", "require-delivery-agent.py", "decide", lambda *a, **k: (True, "mutated")),
-    "protect-architecture": ("hook", "protect-architecture.py", "decide", lambda *a, **k: (True, "mutated", "")),
-    "no-cloud": ("hook", "no-cloud.py", "classify_command", lambda *a, **k: None),
-    "classify-and-place": ("hook", "classify-and-place.py", "placement_ok", lambda *a, **k: True),
-    "approval": ("hook", "require-approval.py", "is_egress", lambda *a, **k: (False, "")),
-    "doc-allowlist": ("module", "docs_edit", "check_allowlist", lambda *a, **k: None),
-    "content": ("module", "validate_content_rules", "check_doc_bound", lambda *a, **k: []),
-    "watchdog": ("module", "notify_owner", "_staleness", lambda *a, **k: ([], None)),
-}
+
+@dataclass(frozen=True)
+class Mutation:
+    """One deliberate break. `where` is "hook" (patched as the file loads) or "module" (patched in place).
+
+    With `wraps`, `replacement` is called with the real attribute and returns the broken one.
+    `must_fail` names a case that has to go red; empty means any failing case will do.
+    """
+
+    gate: str
+    what: str
+    where: str
+    target: str
+    attr: str
+    replacement: object
+    must_fail: str = ""
+    wraps: bool = False
+
+
+def _piper_rule(ctx):
+    """The roll call before the fix: every turn without a dispatch is the SOLO block."""
+    import _activity as a
+    names = a.roster(ctx.dispatches)
+    return a.Verdict(a.DISPATCHED, tuple(names)) if names else a.Verdict(a.WROTE)
+
+
+def _blind_to_unreadable(real):
+    """turn_context with "could not look" collapsed into "found nothing"."""
+    import _transcript
+
+    def turn_context(path):
+        try:
+            return real(path)
+        except _transcript.TranscriptUnreadable:
+            return _transcript.TurnContext()
+    return turn_context
+
+
+def _pre_port_typed(message: dict) -> tuple[bool, str]:
+    """_transcript._typed before the port: a slash-command row is not a turn of its own."""
+    import _transcript as t
+    text = t.COMMAND_BLOCK.sub(" ", t.HARNESS_BLOCK.sub(" ", t._text_of(message))).strip()
+    return bool(text), text
+
+
+# Most gates get one mutation: the decision function forced to "allow everything".
+# The roll call gets one per outcome, each aimed at the case it must turn red.
+MUTATIONS = [
+    Mutation("delivery-agent", "forced to allow", "hook", "require-delivery-agent.py", "decide",
+             lambda *a, **k: (True, "mutated")),
+    Mutation("protect-architecture", "forced to allow", "hook", "protect-architecture.py", "decide",
+             lambda *a, **k: (True, "mutated", "")),
+    Mutation("no-cloud", "forced to allow", "hook", "no-cloud.py", "classify_command", lambda *a, **k: None),
+    Mutation("classify-and-place", "forced to allow", "hook", "classify-and-place.py", "placement_ok",
+             lambda *a, **k: True),
+    Mutation("approval", "forced to allow", "hook", "require-approval.py", "is_egress", lambda *a, **k: (False, "")),
+    Mutation("doc-allowlist", "forced to allow", "module", "docs_edit", "check_allowlist", lambda *a, **k: None),
+    Mutation("content", "forced to allow", "module", "validate_content_rules", "check_doc_bound", lambda *a, **k: []),
+    Mutation("watchdog", "forced to allow", "module", "notify_owner", "_staleness", lambda *a, **k: ([], None)),
+    Mutation("rollcall", "reverted to PIPER's rule (no dispatch means SOLO)", "module", "_activity", "classify",
+             _piper_rule, must_fail="read-only solo turn (/owe"),
+    Mutation("rollcall", "blind to shell commands", "module", "_activity", "shell_writes", lambda command: False,
+             must_fail="solo turn with a register add-action"),
+    Mutation("rollcall", "blind to the Write tool", "module", "_activity", "WRITE_TOOLS", frozenset(),
+             must_fail="solo turn with a Write"),
+    Mutation("rollcall", "blind to the roster", "module", "_activity", "roster", lambda dispatches: [],
+             must_fail="dispatched turn -> TEAM line"),
+    Mutation("rollcall", "treats an unreadable transcript as an empty turn", "module", "_activity", "turn_context",
+             _blind_to_unreadable, must_fail="unreadable transcript (no such file)", wraps=True),
+    Mutation("rollcall", "treats a tool use it cannot read as a read", "module", "_activity", "tool_use_writes",
+             lambda real: (lambda use: bool(real(use))), must_fail="a solo tool use that cannot be read",
+             wraps=True),
+    Mutation("rollcall", "does not end a turn at a slash command", "module", "_transcript", "_typed",
+             _pre_port_typed, must_fail="after a dispatched /add"),
+    Mutation("rollcall", "ends a turn at a compaction summary", "module", "_transcript", "_is_real_user_turn",
+             lambda real: (lambda event: True if event.get("isCompactSummary") else real(event)),
+             must_fail="a compaction in the middle of a turn", wraps=True),
+]
 
 
 def self_test(names: list[str]) -> int:
@@ -665,39 +903,47 @@ def self_test(names: list[str]) -> int:
 
 
 def mutation_test() -> int:
-    """Break each gate on purpose and prove the self-test notices."""
+    """Break each gate on purpose and prove the self-test notices, on the case it targets."""
     global VERBOSE
     VERBOSE = False
     undetected = []
-    for gate, (where, target, attr, replacement) in MUTATIONS.items():
+    for m in MUTATIONS:
         real_loader = load_hook
 
-        def mutated_loader(name, _filename=target, _attr=attr, _replacement=replacement):
+        def mutated_loader(name, _m=m):
             module = real_loader(name)
-            if name == _filename:
-                setattr(module, _attr, _replacement)
+            if name == _m.target:
+                setattr(module, _m.attr, _m.replacement(getattr(module, _m.attr)) if _m.wraps else _m.replacement)
             return module
 
         problems: list[Problem] = []
-        if where == "hook":
+        if m.where == "hook":
             patcher = mock.patch(f"{__name__}.load_hook", side_effect=mutated_loader)
         else:
-            patcher = mock.patch.object(importlib.import_module(target), attr, replacement)
+            module = importlib.import_module(m.target)
+            replacement = m.replacement(getattr(module, m.attr)) if m.wraps else m.replacement
+            patcher = mock.patch.object(module, m.attr, replacement)
         with patcher, contextlib.redirect_stdout(open(os.devnull, "w")):
             try:
-                CHECKS[gate](problems)
+                CHECKS[m.gate](problems)
             except Exception as exc:  # noqa: BLE001
                 # swallow: a crash under mutation still counts as "detected"
-                problems.append(Problem(gate, "crashed under mutation", "", str(exc)))
-        caught = len(problems)
-        print(f"  mutation: {gate:<22} {target}:{attr} forced to allow -> self-test reports "
-              f"{caught} failing case(s)" + ("" if caught else "   UNDETECTED"))
-        if not caught:
-            undetected.append(gate)
+                problems.append(Problem(m.gate, f"crashed under mutation ({m.must_fail})", "", str(exc)))
+        aimed = [p for p in problems if m.must_fail in p.label] if m.must_fail else problems
+        print(f"  mutation: {m.gate:<22} {m.target}:{m.attr} {m.what} -> self-test reports "
+              f"{len(problems)} failing case(s)" + ("" if aimed else "   UNDETECTED"))
+        if m.must_fail:
+            for problem in aimed[:1]:
+                print(f"      red: {problem.label}")
+                print(f"           expected {problem.expected}, got {problem.got}")
+        if not aimed:
+            undetected.append(f"{m.gate} ({m.what})")
     if undetected:
-        print(f"\nMUTATION TEST FAIL -- the self-test stayed green with {', '.join(undetected)} removed.")
+        print(f"\nMUTATION TEST FAIL -- the self-test stayed green under: {'; '.join(undetected)}.")
         return 1
-    print(f"\nMUTATION TEST OK -- removing any one of {len(MUTATIONS)} gates turns the self-test red.")
+    gates = len({m.gate for m in MUTATIONS})
+    print(f"\nMUTATION TEST OK -- all {len(MUTATIONS)} mutations across {gates} gates turn the self-test red, "
+          f"the aimed ones on the case they target.")
     return 0
 
 

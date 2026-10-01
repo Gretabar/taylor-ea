@@ -2,13 +2,20 @@
 
 PORTED FROM PIPER. The banner from announce-dispatch.py scrolls away mid-turn. This
 is the summary Taylor reads last, and its real job is the negative case: "TEAM:
-NONE" makes a solo turn impossible to miss. After a capture it should read
+NONE" makes a solo write impossible to miss. After a capture it should read
 REED -> PAGE -> WREN; docs/FOR-TAYLOR.md tells him so.
 
-THE TWO CASES ARE DELIBERATELY ASYMMETRIC and that asymmetry is the whole design. A
-dispatched turn gets one compact line meant to be skimmed past. A solo turn gets a
-full-width block. STEVIE tried one short line for each and the honest report back
-was "it was so small I almost missed it".
+THE CASES ARE DELIBERATELY ASYMMETRIC and that asymmetry is the whole design. A
+dispatched turn gets one compact line meant to be skimmed past. A solo turn that
+wrote gets a full-width block. STEVIE tried one short line for each and the honest
+report back was "it was so small I almost missed it".
+
+A SOLO TURN THAT ONLY READ GETS ONE QUIET LINE, and that is the change from PIPER.
+/owe and /morning are dispatch-free by design, so PIPER's rule ("no dispatch, show
+the block") would put the alarm on Taylor's screen every morning until he stopped
+reading it, and the one capture that ran solo would scroll past with the rest.
+_activity.py decides which case a turn is, from the same transcript walk that names
+the roster, and an unreadable turn is UNVERIFIED, never the quiet line.
 
 WHAT IS ADDED HERE.
 
@@ -46,11 +53,14 @@ if str(HERE) not in sys.path:
 
 import _audit  # noqa: E402
 import _health  # noqa: E402
+from _activity import DISPATCHED, READ_ONLY, WROTE, verdict_for  # noqa: E402
 from _gate import REPO_ROOT, is_build_machine  # noqa: E402
-from _transcript import TranscriptUnreadable, roster, turn_context  # noqa: E402
 
 RULE = "=" * 60
 CHANGE_LOG = REPO_ROOT / "context" / "architecture" / "CHANGE-LOG.md"
+
+# Quoted word for word in docs/FOR-TAYLOR.md. Change both or neither.
+READ_ONLY_LINE = "TEAM  |  read only, nothing written"
 
 SOLO = "\n".join([
     RULE,
@@ -65,8 +75,9 @@ SOLO = "\n".join([
 
 UNVERIFIED = "\n".join([
     RULE,
-    "TEAM: UNVERIFIED - the session transcript could not be read.",
-    "Whether a specialist ran this turn is unknown, not clean.",
+    "TEAM: UNVERIFIED - this turn could not be read in full.",
+    "Who worked and what was written are both unknown, and",
+    "unknown is not clean.",
     RULE,
 ])
 
@@ -152,15 +163,20 @@ def change_log_banner() -> str:
     ])
 
 
-def rollcall(payload: dict) -> str:
-    try:
-        ctx = turn_context(payload.get("transcript_path"))
-    except TranscriptUnreadable:
-        team = UNVERIFIED
-    else:
-        names = roster(ctx.dispatches)
-        team = SOLO if not names else f"TEAM  |  {' -> '.join(names)}  ({len(names)} dispatched)"
+def team_block(transcript_path: str | None) -> str:
+    """The team part of the roll call: TEAM line, SOLO block, quiet line or UNVERIFIED block."""
+    verdict = verdict_for(transcript_path)
+    if verdict.kind == DISPATCHED:
+        return f"TEAM  |  {' -> '.join(verdict.names)}  ({len(verdict.names)} dispatched)"
+    if verdict.kind == WROTE:
+        return SOLO
+    if verdict.kind == READ_ONLY:
+        return READ_ONLY_LINE
+    return UNVERIFIED
 
+
+def rollcall(payload: dict) -> str:
+    team = team_block(payload.get("transcript_path"))
     blocks = [b for b in (audit_banner(), change_log_banner(), tick_line(), team) if b]
     return "\n".join(blocks)
 
