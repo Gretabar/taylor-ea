@@ -58,7 +58,7 @@ Vendored 2026-10-01.
 | `scripts/notify_owner.py` | `PIPER:scripts/notify_cass.py` | `untracked` | `661fb20f4e154868d699ab00732c632aa8536740ac484f411328956febf37847` | `4a65dda3021544c337da7a26e5f1a957ab4909430ad6004588bbe17e7cea27f4` | PORT |
 | `scripts/validate_agent_contracts.py` | `PIPER:scripts/validate_agent_contracts.py` | `untracked` | `fb2892cca02a78f2495ccb78ac1645432ec0e4ced23a1220c6e2bd1c154ae896` | `b62cf4ad7ae2a85693671b3570231d96892deb59422782020024f80ddcd15aca` | PORT |
 | `scripts/validate_content_rules.py` | `PIPER:scripts/validate_content_rules.py` | `untracked` | `310ad7f6afa5f38be5c18dc27d580fd37005dffdd5551114b15587c3e98fbdc0` | `756c4d9da6f77f4c6f2f3c0ef0739bcba6e1affdc13e9563ab547a6acfc1b873` | PORT |
-| `scripts/validate_guardrails.py` | `PIPER:scripts/validate_guardrails.py` | `untracked` | `704b4700e07cc3c26e3650507b73bd7660eb9d01db2216b973fedeaa54c7dfe7` | `fcb54ee00fc5702cb4852f132839a89cfa33261c70bf16d149db9cd82f01d6d5` | PORT |
+| `scripts/validate_guardrails.py` | `PIPER:scripts/validate_guardrails.py` | `untracked` | `704b4700e07cc3c26e3650507b73bd7660eb9d01db2216b973fedeaa54c7dfe7` | `65d1d08e35883a6ce910a8a23c9ce8bbcdea221e80f3ae3a61ab24b4e75fed71` | PORT |
 | `scripts/check_vendored.py` | `PIPER:scripts/check_vendored.py` | `untracked` | `3e9ab0c1894a70989998c8e536331bacb6f722d40ffc0ac0abadd84d5ce646ef` | `d2811042a9205d770509fad36ead46f34d7d23fb53e4d6b42db87820a0c84356` | PORT |
 | `.claude/hooks/_health.py` | `-` | `-` | `-` | `e4fc9b9dd837b45f2cce473c6f9657f81cc3fad5cdce7f0c7bb3e0ecd3c0f926` | NEW |
 | `.claude/hooks/require-delivery-agent.py` | `-` | `-` | `-` | `5d19e0644a0ba7d8c312ac73038c69a68beb448f77cb3d1171eff1d4307ba24a` | NEW |
@@ -73,7 +73,7 @@ Vendored 2026-10-01.
 | `tests/test_calendar_next.py` | `-` | `-` | `-` | `39b93a6afe224422e711ce8b14e1edb8c4ba08c99d0544ff214f8f42dce37c22` | NEW |
 | `tests/test_docs_read.py` | `-` | `-` | `-` | `eaced801952ec08874cba7972d324fcf9e146dd957cb3541da9c05295e561242` | NEW |
 | `scripts/docs_propose.py` | `-` | `-` | `-` | `d8c65a8a6179340d3865c0afe855e4f36b3e095eed3ad49f2d315c2822ff2d98` | NEW |
-| `scripts/docs_edit.py` | `-` | `-` | `-` | `9dffdc3b854bcb1f0f6168a43a59e9c001f4f97754d79ed00380f37d14e560e8` | NEW |
+| `scripts/docs_edit.py` | `-` | `-` | `-` | `dc4f31a5af0b246172157f428590bddaa8d7d9e8883334470f473c508b82f054` | NEW |
 | `scripts/docs_reconcile.py` | `-` | `-` | `-` | `8ae92c49a91167132497725c67a1d29f304c73eaad1f9b7a0bee4054362d74e7` | NEW |
 | `scripts/acceptance.py` | `-` | `-` | `-` | `780dc65a0050ad8bf87958a5b16bc8ace091649406788f2972d4f03a31d7da87` | NEW |
 | `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `d48bbf97bb791f75ac304a1f124426889d59d49f36b156c9ce98f697830e000e` | PORT |
@@ -120,7 +120,7 @@ Vendored 2026-10-01.
 | `.claude/hooks/_activity.py` | `-` | `-` | `-` | `5fe8c91a94d9687ba1abf07c3cef1547e65139f2986fad49eefcba80fcb19a70` | NEW |
 | `tests/test_acceptance_preflight.py` | `-` | `-` | `-` | `0b3e3976b433f02deaa37c2673fb4a349380688261182705b7e79e1674deff11` | NEW |
 | `tests/test_acceptance_p16.py` | `-` | `-` | `-` | `fdb731ea4aa6be00c14ee38011a245958bb700e04d92176e4f3e6cc5764317d9` | NEW |
-| `.claude/hooks/require-active-agent.py` | `-` | `-` | `-` | `3d55f2016d2badc31a0378a5592dea739d75169bb5824a1601cf7b3bb98019e1` | NEW |
+| `.claude/hooks/require-active-agent.py` | `-` | `-` | `-` | `a2b185d929db73d320d97b11879aa226349fbd22bf45d0e127868468531266a2` | NEW |
 | `.claude/hooks/require-privacy-agent.py` | `-` | `-` | `-` | `379f5d82ccaf918dd6d861aeea82e3f2d74bc8459e48fa9fa36d3daa0c409594` | NEW |
 | `scripts/team.py` | `-` | `-` | `-` | `f9a99f5d30c7043930d74177d9ede8764c9746e7afa0e028222c8d52f355ff24` | NEW |
 | `scripts/privacy_screen.py` | `-` | `-` | `-` | `2ab667b3f2930ddc1b94ab5efe9e77fcf1e8a637e8ae61a5b938e834f2ba8313` | NEW |

@@ -198,7 +198,10 @@ def check_privacy(conn, proposal: dict) -> None:
     if stamp is None:
         raise Refused(f"this proposal is flagged for a privacy review ({category}) and SAGE has not reviewed it. "
                       f"SAGE runs scripts/privacy_review.py --approve or --hold on it first (blueprint section 2).")
-    if stamp["verdict"] != "approve" or stamp["reviewer"] != "SAGE":
+    if stamp["reviewer"] != "SAGE":
+        raise Refused(f"the newest privacy verdict on this proposal ({category}) was not recorded by SAGE, so it "
+                      f"does not count; SAGE reviews it with scripts/privacy_review.py")
+    if stamp["verdict"] != "approve":
         raise Refused(f"SAGE is holding this proposal ({category}): {stamp['reason']}")
 
 

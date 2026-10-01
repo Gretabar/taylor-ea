@@ -102,7 +102,8 @@ READERS = frozenset({
     "findstr", "select-string", "sls", "sed", "awk", "wc", "diff", "fc", "git", "ls", "dir",
     "get-childitem", "gci", "echo", "printf", "write-output", "write-host", "code", "notepad", "#",
 })
-PREFIXES = frozenset({"&", ".", "call", "start", "exec", "time", "nohup", "npx", "bunx", "cmd", "/c"})
+PREFIXES = frozenset({"&", ".", "call", "start", "start-process", "saps", "exec", "time", "nohup", "npx",
+                      "bunx", "cmd", "/c"})
 SEPARATORS = re.compile(r"\|\||&&|[;|\r\n]")
 TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|\S+')
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
@@ -132,7 +133,9 @@ def claude_cli_dispatch(command: str, depth: int = 0) -> tuple[str, str] | None:
         if i >= len(tokens) or _name(tokens[i]) in READERS:
             continue
         if _name(tokens[i]) in CLAUDE_PROGRAMS:
-            args = tokens[i + 1:]
+            # Flattened, so flags passed inside one quoted argument (Start-Process
+            # claude -ArgumentList '-p hi') are still seen.
+            args = " ".join(tokens[i + 1:]).split()
             session = None
             for j, arg in enumerate(args):
                 flag, _, inline = arg.partition("=")
