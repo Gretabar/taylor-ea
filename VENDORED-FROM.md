@@ -63,6 +63,7 @@ Vendored 2026-10-01.
 | `.claude/hooks/_health.py` | `-` | `-` | `-` | `2ab3ed936716efb6b290c479a5e8790e461fa14965ecd2165a81d22e8b7b19ac` | NEW |
 | `.claude/hooks/require-delivery-agent.py` | `-` | `-` | `-` | `190205d929fbf92aea96e769fa90b13957a11e20fbb428b1fa00969fc9a68357` | NEW |
 | `.claude/hooks/protect-architecture.py` | `-` | `-` | `-` | `e4643ed1eb8fee8f4deaf561ed6747ffe22dd7397f96daf75706376e05651da9` | NEW |
+| `scripts/register.py` | `-` | `-` | `-` | `c6bd14f0bf119f03298d30a530417778a61bf49538bd284769b670d26cf88969` | NEW |
 <!-- end of manifest table -->
 
 ## What changed, and why
