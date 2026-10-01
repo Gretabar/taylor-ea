@@ -75,7 +75,7 @@ Vendored 2026-10-01.
 | `scripts/docs_propose.py` | `-` | `-` | `-` | `5caf67bc93a6f62196cec58ef55c22ad0efcbe296291aab91f283b93b161b355` | NEW |
 | `scripts/docs_edit.py` | `-` | `-` | `-` | `2918114b463df9c0a56192c2f846dadf027dc98b0e8b83a9c22c4679758d3603` | NEW |
 | `scripts/docs_reconcile.py` | `-` | `-` | `-` | `8ae92c49a91167132497725c67a1d29f304c73eaad1f9b7a0bee4054362d74e7` | NEW |
-| `scripts/acceptance.py` | `-` | `-` | `-` | `cf6be4c7b0e58b7e77d1578c1c64abb7d8edee76f8b5c42edc9af9db1ecb06c6` | NEW |
+| `scripts/acceptance.py` | `-` | `-` | `-` | `540c99322acb3fa8ccb3e51e1e45f3b2c052c082d17b58074b3cde8c833ba8e4` | NEW |
 | `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `346d8159621e904f75c2156a1123fec232d3f1d7775ad27d82086bb5d558d5bc` | PORT |
 | `scripts/run_ea_tick.ps1` | `PIPER:scripts/run_cadence_tick.ps1` | `untracked` | `d7233a6d93db66768bebbb3ca61591de41356a88a56a0ad92ddbd621d6ddccb2` | `5ec03f6aa2b6196c05ab6c4abaee5125de8c167fd1e17bc3f0457b16bad787fa` | PORT |
 | `scripts/schedule_ea_tick.ps1` | `PIPER:scripts/schedule_cadence_tick.ps1` | `untracked` | `6189ca47717bb64d4bb7521b69f166330ddac8939e4a05dd57936f9d2e88ca7e` | `1124899fae5c81fbee7ed096a2a5b4d2de64096a42b947a665dae37e4f47fb79` | PORT |
@@ -118,6 +118,7 @@ Vendored 2026-10-01.
 | `tests/fixtures/kaed_fixture_document.json` | `-` | `-` | `-` | `23699f79c4dd951d76cf44b9872f4d3faa2b0eb45b151b4e4d9fe941342f642b` | NEW |
 | `tests/fixtures/kaed_section_map.json` | `-` | `-` | `-` | `74b916c5d60e1705d12313182af5df84d2921196dd17d6019865b0fb4782a110` | NEW |
 | `.claude/hooks/_activity.py` | `-` | `-` | `-` | `597f775c8500fd6a2cc47a28dcd706390f4c6f59549b7b29c37869d54b4b9940` | NEW |
+| `tests/test_acceptance_preflight.py` | `-` | `-` | `-` | `cd37e0cc22207cbdac6763ce7f63dfcd1e3bf5c0532e8099c51e5faf1e5b9a46` | NEW |
 <!-- end of manifest table -->
 
 ## What changed, and why

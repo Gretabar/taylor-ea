@@ -20,8 +20,29 @@ points at state/fixtures.db and docs_edit.py refuses any non-fixture Doc. The
 harness's own direct API writes (playing a manager who types "Done" in a Status
 cell) refuse any Doc that is not registered fixture=1 AND titled [FIXTURE].
 
+FRESH FIXTURES OR NOTHING. Every leg assumes the fixtures are exactly as
+make_fixtures.py --create left them: P1.1 counts its one topic, P1.6 reads the
+meeting id a NEW capture returns, G4 consumes its sacrificial Doc, G5 adds the
+alias it then tests. A rerun on top of a previous run's state false-fails seven
+legs with detail that reads like passes, and used to overwrite a passing report
+with that. So without --rebuild the harness first checks the register for rows a
+run leaves behind, and every fixture Doc against the snapshot taken when it was
+built. If anything is left over, it refuses with exit 2 before running a leg and
+writes no report. It never rebuilds on its own: deleting and recreating Docs in
+Mike's Drive stays an explicit flag.
+
+BLOCKED IS NOT FAILED. A leg that could not be exercised is Blocked. P1.6 and G4
+stand on fixture preconditions the system under test does not own, so a harness
+exception there is reported Blocked; a script that exits non-zero or breaks its
+output contract is a SystemFailure and is still FAILED.
+
 Usage:
     python scripts/acceptance.py --fixtures [--rebuild] [--date 2026-10-01]
+
+Exit 0 when every script leg Passed and every check exited 0; 1 when any leg is
+FAILED or Blocked (Blocked is not a pass) or a check failed; 2 when it refused to
+run (leftover or unbuilt fixtures, or freshness could not be checked), in which
+case no report was written.
 """
 
 from __future__ import annotations
@@ -40,6 +61,7 @@ import socket  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 import tempfile  # noqa: E402
+from collections import Counter  # noqa: E402
 from datetime import date, datetime, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
 
@@ -90,6 +112,24 @@ def sh(*args: str, stdin: str | None = None, env: dict | None = None) -> Run:
     done = subprocess.run([PY, *args], cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8",
                           errors="replace", input=stdin, env=env or ENV, timeout=600)
     return Run(done.returncode, done.stdout, done.stderr)
+
+
+class SystemFailure(Exception):
+    """A script under test exited non-zero or broke its output contract. Always FAILED, never Blocked."""
+
+
+def system_json(run: Run, label: str, *keys: str) -> dict:
+    """A script's JSON output. Anything else is the system's failure, not the harness's."""
+    if run.code != 0:
+        raise SystemFailure(f"{label} exited {run.code}: {(run.err.strip() or run.out.strip())[-160:]}")
+    try:
+        result = json.loads(run.out)
+    except ValueError as exc:
+        raise SystemFailure(f"{label} printed no JSON: {run.out.strip()[:160]!r}") from exc
+    missing = [key for key in keys if key not in result]
+    if missing:
+        raise SystemFailure(f"{label} output has no {', '.join(missing)}: {run.out.strip()[:160]}")
+    return result
 
 
 def db():
@@ -208,6 +248,90 @@ def rebuild(ev: Evidence) -> None:
     ev.cmd("make_fixtures.py --create", result)
     if result.code != 0:
         raise RuntimeError("fixtures could not be built; nothing else can be tested")
+
+
+LEFTOVER = "fixtures carry state from a previous run; rerun with --rebuild"
+NOT_BUILT = "no fixtures are built; rerun with --rebuild"
+NOTHING_BUILT = "no fixture Docs are registered"
+
+# Tables make_fixtures.py --create never writes and every leg does. One row is
+# enough to say a run happened here.
+RUN_TABLES = ("actions", "action_events", "topics", "needs_input", "doc_items", "reconcile_events",
+              "captures", "proposals", "counters")
+
+
+def expected_roles() -> Counter:
+    """The fixture Docs a fresh build registers, by role."""
+    import make_fixtures  # noqa: PLC0415
+
+    return Counter({"running_1on1": len(make_fixtures.PEOPLE), "g4_sacrificial": 1, "checkbox_experiment": 1})
+
+
+def _content(parsed: dict) -> str:
+    """A parsed Doc as canonical JSON with the revision blanked: equal strings mean equal content."""
+    return docs_read.snapshot({**parsed, "revision_id": None})[0]
+
+
+def changed_docs(conn, fetch=None) -> list[str]:
+    """Fixture Docs that are no longer as they were built. Raises DocReadError when one cannot be read.
+
+    The reference is the doc_snapshots row make_fixtures.py wrote right after building
+    each Doc (the earliest one for that Doc). An unchanged revision is clean; a new
+    revision is clean only if the content still matches, so a no-op revision bump
+    does not force a rebuild. A Doc Google no longer has (G4 deletes one) is leftover
+    state. Any other read failure raises: unreadable is not clean.
+    """
+    if fetch is None:
+        service = docs_read.docs_service()
+
+        def fetch(doc_id: str) -> dict:
+            return docs_read.fetch(service, doc_id)
+
+    reasons = []
+    for doc in conn.execute("SELECT doc_id, title, section_map_json FROM docs WHERE fixture = 1 ORDER BY id").fetchall():
+        built = conn.execute("SELECT revision_id, parsed_json FROM doc_snapshots WHERE doc_id = ? ORDER BY id LIMIT 1",
+                             (doc["doc_id"],)).fetchone()
+        if built is None:
+            reasons.append(f"{doc['title']}: no build snapshot to compare against")
+            continue
+        try:
+            document = fetch(doc["doc_id"])
+        except docs_read.DocReadError as exc:
+            if exc.status != 404:
+                raise
+            reasons.append(f"{doc['title']}: no longer exists")
+            continue
+        if document.get("revisionId") == built["revision_id"]:
+            continue
+        parsed = docs_read.parse(document, json.loads(doc["section_map_json"] or "{}"))
+        if _content(parsed) != _content(json.loads(built["parsed_json"])):
+            reasons.append(f"{doc['title']}: changed since it was built")
+    return reasons
+
+
+def leftover_state(conn, fetch=None, roster_path: Path | None = None) -> list[str]:
+    """Why the fixtures are not as make_fixtures.py --create left them. Empty means fresh.
+
+    Cheapest evidence first, and Google is asked only when the register is clean.
+    """
+    reasons = [f"{table}: {count} row(s)" for table in RUN_TABLES
+               if (count := conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])]
+    if reasons:
+        return reasons
+    roster = json.loads((roster_path or register.ROSTER_PATH).read_bytes().decode("utf-8"))
+    seeded = {str(p["key"]).lower(): {a.casefold() for a in p.get("aliases") or []} for p in roster.get("people") or []}
+    for person in conn.execute("SELECT key, aliases_json FROM people").fetchall():
+        extra = {a.casefold() for a in json.loads(person["aliases_json"] or "[]")} - seeded.get(person["key"], set())
+        if extra:
+            reasons.append(f"people: {person['key']} has aliases the roster does not ({', '.join(sorted(extra))})")
+    if reasons:
+        return reasons
+    roles = Counter(row["role"] for row in conn.execute("SELECT role FROM docs WHERE fixture = 1").fetchall())
+    if not roles:
+        return [NOTHING_BUILT]
+    if roles != expected_roles():
+        return [f"fixture Docs by role {dict(roles)}; a fresh build has {dict(expected_roles())}"]
+    return changed_docs(conn, fetch)
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +503,11 @@ def p16(ev: Evidence) -> dict:
     topic = sh("scripts/register.py", "add-topic", "--person", "mark", "--text", "Patio season close-out plan",
                "--instruction-date", INSTRUCTION_DATE)
     ev.cmd("register.py add-topic --person mark (a biweekly fixture series)", topic)
-    result = topic.json()
+    result = system_json(topic, "register.py add-topic", "ref")
+    if result.get("created") is False:
+        # The register answered a replay correctly; the harness asked on top of a previous run.
+        raise RuntimeError(f"{result['ref']} was captured by an earlier run, so the fixtures are not fresh")
+    system_json(topic, "register.py add-topic", "meeting_id", "next_at")
     _, applied, _ = propose_and_apply("add-topic", result["ref"], ev)
     doc = doc_of("Mark x Taylor")
     parsed = read(doc)
@@ -469,13 +597,18 @@ def g1(ev: Evidence) -> dict:
 def g4(ev: Evidence) -> dict:
     import make_fixtures  # noqa: PLC0415
 
-    sacrificial = rows("SELECT * FROM docs WHERE role = 'g4_sacrificial'")[0]
+    found = rows("SELECT * FROM docs WHERE role = 'g4_sacrificial'")
+    if not found:
+        raise RuntimeError("no G4 fixture Doc is registered; a previous G4 consumed it")
+    sacrificial = found[0]
     topic = sh("scripts/register.py", "add-topic", "--person", "shawn", "--text", "Weekend coverage plan",
                "--instruction-date", INSTRUCTION_DATE)
-    t_ref = topic.json()["ref"]
+    t_ref = system_json(topic, "register.py add-topic", "ref")["ref"]
     prop = sh("scripts/docs_propose.py", "add-topic", "--ref", t_ref, "--doc", sacrificial["doc_id"])
     ev.cmd(f"docs_propose.py add-topic --ref {t_ref} --doc <G4 fixture>", prop)
-    path = next(ln.split(None, 1)[1] for ln in prop.out.splitlines() if ln.startswith("proposal:"))
+    path = next((ln.split(None, 1)[1] for ln in prop.out.splitlines() if ln.startswith("proposal:")), None)
+    if prop.code != 0 or path is None:
+        raise SystemFailure(f"docs_propose.py exited {prop.code} with no proposal: {prop.err.strip()[-160:]}")
     import google_creds  # noqa: PLC0415
 
     if google_creds.DRIVE in google_creds.granted_scopes():
@@ -510,8 +643,9 @@ def g4(ev: Evidence) -> dict:
 
     kaed = doc_of("Kaed x Taylor")
     revision_before = read(kaed)["revision_id"]
-    stale_topic = sh("scripts/register.py", "add-topic", "--person", "kaed", "--text", "Staff recognition budget",
-                     "--instruction-date", INSTRUCTION_DATE).json()["ref"]
+    stale_topic = system_json(sh("scripts/register.py", "add-topic", "--person", "kaed", "--text",
+                                 "Staff recognition budget", "--instruction-date", INSTRUCTION_DATE),
+                              "register.py add-topic", "ref")["ref"]
     _, stale, _ = propose_and_apply("add-topic", stale_topic, ev, apply_extra=("--simulate-stale-revision",))
     revision_after = read(kaed)["revision_id"]
     s_row = rows("SELECT ref, status FROM topics WHERE ref = ?", stale_topic)[0]
@@ -557,12 +691,59 @@ def checkbox_experiment(ev: Evidence) -> str:
 # report
 # ---------------------------------------------------------------------------
 
+# A harness crash in these legs is Blocked, not FAILED. Each stands on a fixture
+# precondition the system under test does not own (P1.6 a seeded Calendar series, G4
+# a sacrificial Doc that a previous G4 deleted), so an exception there says the test
+# could not be exercised. A SystemFailure is FAILED in every leg.
+BLOCK_ON_HARNESS_ERROR = frozenset({"P1.6", "G4"})
+
+
+def run_leg(name: str, fn) -> tuple[Evidence, dict]:
+    """Run one leg. Never Passed without the leg's own observed evidence."""
+    ev = Evidence()
+    try:
+        return ev, fn(ev)
+    except SystemFailure as exc:
+        return ev, {"ok": False, "summary": f"system failure: {exc}"}
+    except Exception as exc:  # noqa: BLE001
+        # swallow: recorded as FAILED or Blocked with the exception, never as Passed.
+        # One broken test must not hide the evidence of the others.
+        result = {"ok": False, "summary": f"harness error {exc.__class__.__name__}: {exc}"}
+        if name in BLOCK_ON_HARNESS_ERROR:
+            result["blocked"] = True
+        return ev, result
+
+
+def verdict(result: dict) -> str:
+    if result["ok"]:
+        return "Passed"
+    return "Blocked" if result.get("blocked") else "FAILED"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--fixtures", action="store_true", required=True)
     parser.add_argument("--rebuild", action="store_true", help="delete and rebuild every fixture Doc first")
     parser.add_argument("--date", default=date.today().isoformat())
     args = parser.parse_args()
+
+    if not args.rebuild:
+        conn = None
+        try:
+            conn = db()
+            reasons = leftover_state(conn)
+        except Exception as exc:  # noqa: BLE001
+            # Not swallowed: refused loudly, before any leg and without a report. A
+            # fixture that could not be checked has not been shown to be fresh.
+            print(f"cannot check that the fixtures are fresh ({exc.__class__.__name__}: {exc}); nothing was run",
+                  file=sys.stderr)
+            return 2
+        finally:
+            if conn is not None:
+                conn.close()
+        if reasons:
+            print(NOT_BUILT if reasons == [NOTHING_BUILT] else LEFTOVER, file=sys.stderr)
+            return 2
 
     started = datetime.now(timezone.utc).isoformat(timespec="seconds")
     sections: list[tuple[str, Evidence, dict]] = []
@@ -583,22 +764,11 @@ def main() -> int:
     tests = [("P1.1", p11), ("P1.2", p12), ("P1.3", p13)]
     results: dict[str, dict] = {}
     for name, fn in tests:
-        ev = Evidence()
-        try:
-            results[name] = fn(ev)
-        except Exception as exc:  # noqa: BLE001
-            # swallow: recorded as Failed with the exception, never as Passed. One
-            # broken test must not hide the evidence of the others.
-            results[name] = {"ok": False, "summary": f"harness error {exc.__class__.__name__}: {exc}"}
+        ev, results[name] = run_leg(name, fn)
         sections.append((name, ev, results[name]))
     for name, fn in (("P1.4", lambda ev: p14(ev, results["P1.2"].get("a_ref", "A-0001"))), ("P1.5", p15),
                      ("P1.6", p16), ("G1", g1), ("G4", g4), ("G5", g5)):
-        ev = Evidence()
-        try:
-            results[name] = fn(ev)
-        except Exception as exc:  # noqa: BLE001
-            # swallow: see above
-            results[name] = {"ok": False, "summary": f"harness error {exc.__class__.__name__}: {exc}"}
+        ev, results[name] = run_leg(name, fn)
         sections.append((name, ev, results[name]))
     probe_ev = Evidence()
     probe = checkbox_experiment(probe_ev)
@@ -632,19 +802,19 @@ def main() -> int:
     ]
     for name in ("P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P1.6", "G1"):
         r = results[name]
-        lines.append(f"| {name} | {'Passed' if r['ok'] else 'FAILED'} | Blocked: {session[name]} | {r['summary']} |")
+        lines.append(f"| {name} | {verdict(r)} | Blocked: {session[name]} | {r['summary']} |")
     lines.append("| G2 | Blocked | Blocked | Out of Phase 1 scope: preference learning needs the Phase 3 and 5 draft workflows. |")
     lines.append("| G3 | Blocked | Blocked | Out of Phase 1 scope: private transcripts are Phase 2 (Wispr). |")
     for name in ("G4", "G5"):
         r = results[name]
-        lines.append(f"| {name} | {'Passed' if r['ok'] else 'FAILED'} | Blocked: {session[name]} | {r['summary']} |")
+        lines.append(f"| {name} | {verdict(r)} | Blocked: {session[name]} | {r['summary']} |")
     lines += ["", "## Fixture Docs (Mike's Drive, registered fixture=1 in state/fixtures.db)", "",
               "| Role | Person | Doc id | Title |", "| --- | --- | --- | --- |"]
     lines += [f"| {f['role']} | {f['key'] or '-'} | `{f['doc_id']}` | {f['title']} |" for f in fixtures]
     if setup.lines:
         lines += ["", "### Rebuild", ""] + setup.lines
     for name, ev, result in sections:
-        lines += ["", f"## {name}: {'Passed' if result['ok'] else 'FAILED'} (script leg)", ""] + ev.lines
+        lines += ["", f"## {name}: {verdict(result)} (script leg)", ""] + ev.lines
     lines += ["", "## Checkbox experiment", "",
               "Run on the `[FIXTURE] Checkbox experiment` Doc, whose checklist was created with the API's",
               "BULLET_CHECKBOX preset. What the API returns for an unchecked checklist item:", ""] + probe_ev.lines + [
@@ -676,7 +846,7 @@ def main() -> int:
     failed = [n for n, r in results.items() if not r["ok"]]
     print(f"wrote {out.relative_to(ROOT)}")
     for name in ("P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P1.6", "G1", "G4", "G5"):
-        print(f"  {name:5} {'Passed' if results[name]['ok'] else 'FAILED'}  {results[name]['summary'][:110]}")
+        print(f"  {name:5} {verdict(results[name]):7}  {results[name]['summary'][:110]}")
     print(f"  guardrails exit {guard.code}, mutation exit {mutation.code}, register self-test exit "
           f"{register_test.code}, unit tests exit {units.returncode}, contracts exit {contracts.code}, "
           f"vendored exit {vendored.code}")
