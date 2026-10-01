@@ -6,9 +6,9 @@
 # prose first, and a check that depends on somebody remembering is the same class
 # of defect the checks catch. This removes the remembering.
 #
-# EVERY "COULD NOT CHECK" BRANCH EXITS 2, NOT 0. STEVIE's version originally exited
-# 0 when it could not cd to the project or find a validator, which reported a clean
-# bill of health for work it had never looked at.
+# EVERY "COULD NOT CHECK" BRANCH EXITS 2, NOT 0. A version of this hook that exits
+# 0 when it cannot cd to the project or find a validator reports a clean bill of
+# health for work it has never looked at.
 #
 # WHAT IS DIFFERENT HERE. Agents, skills and commands live under .claude/ so the VS
 # Code extension finds them by opening the folder. Hooks and context files route to

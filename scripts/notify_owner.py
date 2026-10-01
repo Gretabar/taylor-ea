@@ -10,8 +10,8 @@ already looks at will find it:
 
 WHAT CHANGED FROM PIPER. The staleness check is about the system and nothing else:
 the tick has never succeeded, or last succeeded too long ago, or a registered Doc
-has not been read successfully in that window. PIPER also alarmed on work orders
-piling up; there is no equivalent here, and there must not be one about open
+has not been read successfully in that window. The source also alarmed on its own
+work queue; there is no equivalent here, and there must not be one about open
 employee actions either. Blueprint s.4 and s.6: no weekday chasers, no reminders to
 Taylor merely because employee work is open. This toasts when the MACHINE is
 unwell, never about the work.

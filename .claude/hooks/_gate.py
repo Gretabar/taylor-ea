@@ -3,10 +3,10 @@
 Ported from PIPER. Several gates read a PreToolUse payload, decide, and either exit
 0 or exit 2 with a message. Written once per gate that is several chances to get the
 fail-closed branch subtly different, and the failure mode of getting it wrong is a
-gate that waves through a call it never looked at. STEVIE's _lib.sh carries the
-post-mortem: a bare `jq -r` on a machine without jq yielded an empty string, every
-subsequent grep missed, and the destructive-command gate ALLOWED the thing it was
-written to block.
+gate that waves through a call it never looked at. _lib.sh describes the classic
+case: a bare `jq -r` on a machine without jq yields an empty string, every
+subsequent grep misses, and a blocking gate ALLOWS the thing it was written to
+block.
 
 So the rules live here:
 
@@ -35,9 +35,9 @@ So the rules live here:
 
 WHAT CHANGED FROM PIPER. Env vars are EA_*; the roster is read from
 context/roster-agents.json so this file, the roll call and the contract validator
-cannot disagree about who exists; caller_agent() is new, because PIPER's transcript
-inference would attribute an orchestrator call to the last agent it dispatched,
-which is exactly the hole a delivery-agent gate cannot have.
+cannot disagree about who exists; caller_agent() is new, because transcript
+inference attributes an orchestrator call to the last agent it dispatched, which
+is exactly the hole a delivery-agent gate cannot have.
 """
 
 from __future__ import annotations
@@ -214,8 +214,8 @@ def invokes_script(command: str, stem: str) -> bool:
     """True when this shell command would run scripts/<stem>.py.
 
     Moved here from require-delivery-agent.py when a second gate (the SAGE-only gate
-    on privacy_review.py) needed the identical rule; two copies of one parser are how
-    STEVIE's dispatch parse ended up in four places.
+    on privacy_review.py) needed the identical rule; two copies of one parser drift
+    apart, and a gate that drifts from its sibling is a side door.
 
     A command that mentions the stem AND starts a Python interpreter anywhere in it
     (`python scripts/x.py`, `py -3 ...`, `powershell -Command "python ..."`,

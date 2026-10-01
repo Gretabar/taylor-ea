@@ -16,9 +16,8 @@ than one that does not log: the first stops Taylor working, the second loses a
 line. So every failure path here returns rather than raises, and the callers
 treat record() as fire-and-forget.
 
-BUT IT IS NEVER SILENT ABOUT FAILING. A quiet audit failure is exactly GRIFFIN's
-nine-day false-criticals cascade, where a broken job kept reporting and nobody
-could tell. So a write that lands in neither sink touches state/AUDIT-DEGRADED
+BUT IT IS NEVER SILENT ABOUT FAILING. A quiet audit failure is how a broken job
+keeps reporting for days while nobody can tell. So a write that lands in neither sink touches state/AUDIT-DEGRADED
 with the reason and the timestamp, and team-rollcall.py renders a full-width
 banner on every turn until that file is deleted. Loud and non-blocking, which is
 the pair that actually works.

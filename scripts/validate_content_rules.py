@@ -8,20 +8,19 @@ PORTED FROM PIPER (which ported it from STEVIE). Two design decisions carry over
 
 2. THE EMOJI PATTERN IS DELIBERATELY TIGHT. An arrow is not an emoji.
 
-WHY THE CHARACTER CLASSES ARE BUILT FROM INTEGERS. PIPER wrote them as backslash-u
-escapes so the file carried no literal glyphs, and still noted it "was blocked by
-its own rule, twice". The reason, observed on this build: the hook payload arrives
-with those escape sequences already decoded, so a file that merely SPELLS an emoji
-as an escape reads as containing one. Building the classes from code point integers
-keeps the source free of both glyphs and escapes, so editing this file can never
-trip the hook it powers.
+WHY THE CHARACTER CLASSES ARE BUILT FROM INTEGERS. Writing them as backslash-u
+escapes keeps literal glyphs out of the file, but, observed on this build, the hook
+payload arrives with those escape sequences already decoded, so a file that merely
+SPELLS an emoji as an escape reads as containing one. Building the classes from
+code point integers keeps the source free of both glyphs and escapes, so editing
+this file can never trip the hook it powers.
 
 WHAT CHANGED FROM PIPER. The emoji rule is unchanged: zero tolerance, everywhere.
-The em-dash rule is WIDENED from PIPER's staff-facing directories to everything
-bound for a running Doc or for Taylor: Doc edit proposals (state/proposals/, which
-is exactly the text WREN writes into a Doc), drafts (output/drafts/), the docs
-Taylor reads (docs/) and README.md. PIPER's two HR rules (jurisdiction, personal
-email) are dropped; neither applies to a 1:1 register.
+The em-dash rule covers everything bound for a running Doc or for Taylor: Doc edit
+proposals (state/proposals/, which is exactly the text WREN writes into a Doc),
+drafts (output/drafts/), the docs Taylor reads (docs/) and README.md. Rules that
+belonged to the source system's own domain are dropped; none applies to a 1:1
+register.
 
 THE COVERAGE HOLE, STATED: text a Python script writes through an API never passes
 a Write payload. So scripts/docs_propose.py and scripts/docs_edit.py import

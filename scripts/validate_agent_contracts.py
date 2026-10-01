@@ -6,10 +6,9 @@ context/roster-agents.json, the same file the hooks read, so the validator and
 the gates cannot disagree about who exists. Skills owned by the orchestrator
 declare "Owner: orchestrator", a token that survives renaming the system.
 
-PORTED FROM STEVIE, and the historical examples in the comments below are
-STEVIE's. They are kept rather than rewritten because each one records the actual
-defect that produced the rule, and a rule whose reason has been sanitised away is
-a rule the next person deletes.
+PORTED FROM STEVIE. The comments below keep, for each rule, the class of defect
+that produced it, written generically, because a rule whose reason has been
+sanitised away is a rule the next person deletes.
 
 Two classes of defect this catches, both of which fail silently at runtime:
 
@@ -72,11 +71,10 @@ ORCHESTRATOR = "ORCHESTRATOR"
 # Keyed by the required tool; each value is a list of regexes.
 #
 # A note on the `Write` entry, because it is the reason this file is worth
-# re-reading. It used to be `\*\*Output\*\*:\s*[cC]:` -- which cannot match,
-# because every agent writes the line as ``**Output**: `c:\...` `` with a
-# backtick after the space. The rule was documented in CLAUDE.md, wired into a
-# hook, and had never once fired. A check nobody has watched fail is a check
-# nobody has tested.
+# re-reading. A pattern like `\*\*Output\*\*:\s*[cC]:` cannot match, because the
+# line is written as ``**Output**: `c:\...` `` with a backtick after the space.
+# A rule that is documented and wired but can never match has never once fired.
+# A check nobody has watched fail is a check nobody has tested.
 TOOL_SIGNALS: dict[str, list[str]] = {
     "Bash": [
         r"\bpython3?\s+[\w./\\-]+\.py",   # was `python\s+scripts/`: missed bare paths and python3
@@ -91,9 +89,9 @@ TOOL_SIGNALS: dict[str, list[str]] = {
         r"\*\*Output\*\*:\s*[`'\"]?\s*[a-zA-Z]:[\\/]",  # absolute path, backticked or not
         r"\*\*Output\*\*:\s*[`'\"]?\s*output/",         # repo-relative form
     ],
-    # Not a bare `\bPlaywright\b`. That also matches the `.playwright-mcp/`
-    # cookie-jar path video-intel cites, and video-intel's owner MAC drives no
-    # browser at all -- the pipeline is yt-dlp under Bash. A tool name inside a
+    # Not a bare `\bPlaywright\b`. That also matches a `.playwright-mcp/`
+    # cookie-jar path, which a skill can cite while its owner drives no browser
+    # at all (the pipeline runs a downloader under Bash). A tool name inside a
     # path is a citation, not a claim, the same distinction INVOCATION draws
     # further down.
     "mcp__playwright__browser_navigate": [
@@ -107,23 +105,22 @@ TOOL_SIGNALS: dict[str, list[str]] = {
 #
 # The signal above maps every browser claim onto `browser_navigate`, so an agent
 # holding navigate and nothing else passes while being unable to upload a file,
-# open a dropdown, click, type, or capture what it saw. That is how JUDE came to
-# own skills/opentable-experience -- whose core step is putting a photo through
-# OpenTable's file dialog -- while holding five Playwright tools, none of them
-# `browser_file_upload`. At runtime it clicks "Add photos", meets a file dialog
-# it cannot drive, works around the gap, and reports an upload that never
-# happened. Nobody in the fleet held that tool and the validator said OK.
+# open a dropdown, click, type, or capture what it saw. An agent can then own a
+# skill whose core step is putting a photo through a web app's file dialog while
+# holding five Playwright tools, none of them `browser_file_upload`. At runtime
+# it clicks "Add photos", meets a file dialog it cannot drive, works around the
+# gap, and reports an upload that never happened, and the validator says OK.
 #
-# Every pattern here matches text that exists in this repo today. Two candidates
-# were tried and cut rather than shipped unproven: `\bwait (for|until)\b` only
-# ever matched office-hours prose ("build it now or wait until YYZ ships"), and
-# `\bhover\b` only matched CSS hover states in cinematic-web-animation, whose
-# owner DELANEY holds no `browser_hover` and does not need one.
+# Every pattern here was matched against real skill text. Two candidates were
+# tried and cut rather than shipped unproven: `\bwait (for|until)\b` only ever
+# matched planning prose ("build it now or wait until it ships"), and `\bhover\b`
+# only matched CSS hover states in a design skill whose owner needs no
+# `browser_hover`.
 BROWSER_SIGNALS: dict[str, list[str]] = {
     "mcp__playwright__browser_file_upload": [
         r"\bbrowser_file_upload\b",
         r"\bupload\w*",
-        r"\badd photos?\b",          # OpenTable's button label, and the whole defect
+        r"\badd photos?\b",          # a web app's button label, and the defect itself
     ],
     "mcp__playwright__browser_select_option": [
         r"\bbrowser_select_option\b",
@@ -148,19 +145,17 @@ BROWSER_SIGNALS: dict[str, list[str]] = {
 }
 
 # BROWSER_SIGNALS apply only to documents that actually drive a UI by hand.
-# Ungated, `\bupload\w*` alone produces five findings and all five are wrong: a
-# `"uploader"` JSON key in social-transcript, "file uploads" as a governance
-# event category in audit-policy, "Upload to ElevenLabs ... via the SDK" in
-# voice-splice, a knowledge-file upload in build-desktop-project, and a re-encode
-# step in video-intel. None of them is a browser.
+# Ungated, `\bupload\w*` alone produced five findings and all five were wrong: a
+# `"uploader"` JSON key, "file uploads" as a governance event category, an upload
+# to a speech API through its SDK, a knowledge-file upload, and a re-encode step.
+# None of them is a browser.
 #
 # A document qualifies if it names Playwright or the browser tools, or if it
-# shows TWO independent kinds of UI vocabulary. Two, not one: at one,
-# web-platform-playbook qualifies on a single menu path inside a paragraph about
-# Wix's editor and web-stack-playbook on a single "log in" -- reference documents
-# nobody clicks through. At two, opentable-experience qualifies (seven menu
-# paths, four widget words) without ever naming Playwright, which is exactly the
-# case that motivated all of this.
+# shows TWO independent kinds of UI vocabulary. Two, not one: at one, a reference
+# document qualifies on a single menu path inside a paragraph about a site
+# builder's editor, or on a single "log in", and nobody clicks through those. At
+# two, a skill with seven menu paths and four widget words qualifies without ever
+# naming Playwright, which is exactly the case that motivated all of this.
 #
 # Compiled with explicit flags rather than matched with a blanket re.I. The
 # signal patterns above are all matched case-insensitively, and quietly gating
@@ -171,8 +166,8 @@ UI_VOCABULARY: dict[str, re.Pattern[str]] = {
     "playwright": re.compile(
         r"(?<![./\w-])Playwright(?!-mcp)\b|\bmcp__playwright__|\bbrowser_[a-z_]+\b", re.I
     ),
-    # The one deliberate exception: a UI menu path is Title Case ("Availability
-    # Planning > Special days"). Case-folded it would also match a markdown
+    # The one deliberate exception: a UI menu path is Title Case ("Account
+    # Settings > Special days"). Case-folded it would also match a markdown
     # blockquote and any `a > b` in a code sample.
     "menu path": re.compile(r"\*?\*?[A-Z][A-Za-z]+(?: [A-Za-z]+){0,2}\*?\*? > \*?\*?[A-Z][A-Za-z]+"),
     "click": re.compile(r"\bclick(?:s|ing|ed)? (?:the|on|every|into|\*\*|\"|`|>)", re.I),
@@ -181,11 +176,10 @@ UI_VOCABULARY: dict[str, re.Pattern[str]] = {
 }
 
 # A browser driven from inside a Python script needs Bash, not MCP browser
-# tools. docebo-content-build documents Docebo's DOM in forensic detail --
-# checkbox quirks, `a.dropdown-toggle`, which clicks the modal backdrop swallows
-# -- but every operation runs through `scripts/_docebo_*.py` inside
-# `open_session(...)`. Charging it MCP browser tools would be four wrong findings
-# the day someone gives that skill an owner.
+# tools. A skill can document a web app's DOM in forensic detail (checkbox
+# quirks, `a.dropdown-toggle`, which clicks the modal backdrop swallows) while
+# every operation runs through a Python script inside `open_session(...)`.
+# Charging it MCP browser tools would be four wrong findings.
 SCRIPT_DRIVEN_BROWSER = re.compile(
     r"sync_playwright|async_playwright|\bopen_session\(|\bpage\.[a-z_]+\("
 )
@@ -230,26 +224,24 @@ def check_parses(paths: list[str], failures: list[str]) -> dict[str, tuple[dict,
 
 
 # Skill ownership, so a skill body can be checked against the tools its owner
-# actually holds. Zero of the 36 skills declare `tools:`, so every skill used to
-# fall out of the contract check at `if tools is None: continue` -- and skills
-# are where the operational prose lives ("upload the photo", "open Availability
-# Planning"). The check was structurally blind to two thirds of the files it
-# reported OK on.
+# actually holds. Skills declare no `tools:` of their own, so a check that skips
+# any file without `tools:` skips every skill, and skills are where the
+# operational prose lives ("upload the photo", "open the settings page"). It
+# would be structurally blind to most of the files it reports OK on.
 #
-# Ownership is declared informally. Surveying all 36 turned up six live forms:
+# Ownership is declared informally. Six live forms turn up in practice:
 #
-#   Owner: WEBB.                          design-critic, theme-factory, +6
-#   Owner - JUDE, with ANNIE for copy     opentable-experience
-#   Owners - MAC (pull), DAVE (build)     city-prospect-bank, talent-prospect-bank
-#   Owner DAVE (data) with ANNIE          monthly-marketing-report
-#   FRANK owns this. / **FRANK** owns the pipeline
-#                                         push-lognotes, qa-pass, voice-splice
-#   - Owned by WEBB (design -> deploy)    web-stack-playbook (body bullet)
+#   Owner: REED.                          the plain form
+#   Owner - WREN, with PAGE for the proposal
+#   Owners - REED (register), PAGE (proposal)
+#   Owner HUGO (diagnosis) with WREN
+#   WREN owns this. / **WREN** owns the script
+#   - Owned by REED (register)            a body bullet
 #
 # One regex family covers all of them, in description first then body, taking the
-# FIRST agent named. First, not all: "Owner - JUDE, with ANNIE for copy and
-# DELANEY for the graphic" is one owner and two helpers, and charging ANNIE with
-# JUDE's file dialog is how a check earns its reputation for crying wolf.
+# FIRST agent named. First, not all: "Owner - WREN, with PAGE for the proposal and
+# REED for the row" is one owner and two helpers, and charging PAGE with WREN's
+# tools is how a check earns its reputation for crying wolf.
 OWNER_FORMS = (
     r"\bOwners?\b[\s:*—–-]*({names})\b",
     r"\bOwned by\s+\**({names})\b",
@@ -257,18 +249,18 @@ OWNER_FORMS = (
 )
 
 # Weaker, description-only forms, used when no explicit Owner line exists. Both
-# are load-bearing: they are the only thing that resolves social-analytics to
-# RORY and directory-audit to JUDE, which the agent-side fallback below cannot
-# because QUINN lists both skills too.
+# are load-bearing where two agents list the same skill: the agent-side fallback
+# below refuses to guess between two claimants, and then a description form is
+# the only thing that resolves the owner.
 DESCRIPTION_OWNER_FORMS = (
-    r"^\**({names})\**'s\b",        # "MOLLY's structured sales-discovery skill"
-    r"\bwhen ({names}) needs\b",    # "Use when JUDE needs a current snapshot"
+    r"^\**({names})\**'s\b",        # "PAGE's section map. Anchors on label text."
+    r"\bwhen ({names}) needs\b",    # "Use when PAGE needs the structure"
 )
 
 # Last resort: the agent side of the same claim. Agents list what they own as
-# `- **skill-name** (STEVIE custom) -- ...` under "Key skills". The bullet must
-# LEAD with the bolded slug; WEBB's "- Also reaches for **cinematic-web-animation**"
-# is a use, not a claim, and deliberately does not match. Two agents claiming the
+# `- **skill-name** -- ...` under "Key skills". The bullet must LEAD with the
+# bolded slug; "- Also reaches for **some-skill**" is a use, not a claim, and
+# deliberately does not match. Two agents claiming the
 # same slug resolves to nobody rather than to a guess.
 AGENT_SKILL_CLAIM = re.compile(r"^\s*[-*+]\s+\*\*([a-z0-9-]+)\*\*", re.M)
 
@@ -342,16 +334,15 @@ def resolve_tool_holders(
             holders[path] = (f"{description}\n{body}", body, held, "frontmatter")
             continue
         # A `skills/_proposed/` draft is staged for review, not wired to anyone.
-        # Five of the six are machine-generated stubs whose own frontmatter says
-        # "review before enabling", and the sixth hands its render steps to
-        # DELANEY inside a body its nominal owner RORY never executes. Holding a
-        # draft to a runtime contract is the definition of crying wolf.
+        # Such drafts are typically machine-generated stubs whose own frontmatter
+        # says "review before enabling". Holding a draft to a runtime contract is
+        # the definition of crying wolf.
         if path.replace("\\", "/").startswith(".claude/skills/_proposed/"):
             continue
         slug = os.path.basename(os.path.dirname(path))
         owner = resolve_skill_owner(description, body, slug, roster, claims)
         if owner not in roster:
-            # Unowned, or owned by STEVIE. Reported as a NOTE, never as a
+            # Unowned, or owned by the orchestrator. Reported as a NOTE, never as a
             # failure: who owns a skill is a judgment call, and a validator that
             # fails on a documentation gap it cannot fix gets switched off.
             reason = (
@@ -394,19 +385,12 @@ def check_tool_contracts(
 # MCP capability claims. Keyed by a regex for the capability name; the value is
 # the tool-name prefix the agent must hold, and a human label.
 #
-# Matched by PREFIX, not exact tool name -- jude holds
+# Matched by PREFIX, not exact tool name -- an agent may hold
 # mcp__claude_ai_Supabase__execute_sql, and demanding one specific tool would be
 # brittle for no gain.
-#
-# The n8n pattern is `n8n-mcp`, deliberately not a bare `n8n`. Six of FRANK's
-# seven n8n skills are knowledge skills that teach syntax for code FRANK writes
-# into a node by hand; they need no MCP tool at all. Matching bare `n8n` would
-# produce four findings that are all wrong and teach everyone the check cries
-# wolf.
 MCP_SIGNALS: dict[str, tuple[str, str]] = {
-    # Deliberately short. STEVIE's table carried Notion, n8n and Apollo, none of
-    # which exist in this system's world, and a signal that can never fire is a signal
-    # nobody maintains.
+    # Deliberately short. Signals for systems that do not exist in this system's
+    # world are signals that can never fire, and nobody maintains those.
     #
     # Two Gmail servers are live and either satisfies the claim, so the prefixes
     # are `|`-separated alternatives. Prefer the local USER-scope server for
@@ -421,9 +405,9 @@ MCP_SIGNALS: dict[str, tuple[str, str]] = {
 
 # A capability claim is a STRUCTURAL POSITION, not a keyword occurrence. Only
 # three positions count, so prose, table cells and code blocks are excluded by
-# construction. charlie.md lists "Dashboard, GBP workflow, Apollo, GRIFFIN audit"
-# inside a blast-radius sentence -- that is a mention, not a claim, and it is the
-# designed-in canary for this check.
+# construction. An agent file that lists systems inside a sentence about blast
+# radius mentions them; it does not claim them, and the positions keep it that
+# way.
 CLAIM_POSITIONS = (
     re.compile(r"^\s*[-*+]\s+\*\*([^*]+)\*\*"),   # bolded list-item label
     re.compile(r"^#{2,4}\s+(.+)$"),               # section heading
@@ -477,8 +461,8 @@ INVOCATION = re.compile(
     re.I,
 )
 
-# Pruned during the walk: `reference/` alone is ~2,100 vendor files and this
-# runs on a hook.
+# Pruned during the walk: vendored reference trees can hold thousands of files,
+# and this runs on a hook.
 WALK_SKIP = {"node_modules", ".git", ".venv", "reference", ".playwright-mcp", "__pycache__"}
 
 
@@ -499,9 +483,9 @@ def check_referenced_scripts(paths: list[str], failures: list[str]) -> None:
     """Flag a script an agent or skill tells itself to run that does not exist.
 
     The contract check passes when an agent holds `Bash` -- it never asks whether
-    the thing it is told to run is actually there. GRIFFIN was instructed to run
-    a rule engine that does not exist anywhere in the repo, held Bash, passed
-    validation, and improvised the compliance report instead.
+    the thing it is told to run is actually there. An agent told to run a
+    script that does not exist anywhere in the repo, and holding Bash, passes
+    validation and improvises the output instead.
     """
     basenames, relpaths = repo_python_files()
     repo_root = os.path.abspath(".")
@@ -524,7 +508,7 @@ def check_referenced_scripts(paths: list[str], failures: list[str]) -> None:
                 is_abs = norm.startswith("/") or re.match(r"^[A-Za-z]:/", norm)
 
                 # 2. Anything resolving outside this repo belongs to another
-                #    project (MK47) and is not ours to validate.
+                #    project and is not ours to validate.
                 if is_abs:
                     absolute = os.path.abspath(norm)
                     try:
@@ -572,9 +556,9 @@ def check_referenced_scripts(paths: list[str], failures: list[str]) -> None:
 # fixtures so a later loosening of a regex reintroduces them loudly.
 SELF_TEST_SIGNALS: list[tuple[str, set[str], str, str | None]] = [
     (
-        "opentable upload, the defect this was built for",
+        "a photo upload through a web app, the defect this was built for",
         {"mcp__playwright__browser_click", "mcp__playwright__browser_navigate"},
-        "Open **Availability Planning > Experiences**. The **checkbox** stays off.\n"
+        "Open **Account Settings > Gallery**. The **checkbox** stays off.\n"
         "Verify dimensions yourself before uploading.",
         "mcp__playwright__browser_file_upload",
     ),
@@ -587,7 +571,7 @@ SELF_TEST_SIGNALS: list[tuple[str, set[str], str, str | None]] = [
     (
         "imperative click",
         {"mcp__playwright__browser_navigate"},
-        "Open **Availability Planning > Special days**. Click the **Create** button.",
+        "Open **Account Settings > Special days**. Click the **Create** button.",
         "mcp__playwright__browser_click",
     ),
     (
@@ -605,7 +589,7 @@ SELF_TEST_SIGNALS: list[tuple[str, set[str], str, str | None]] = [
     (
         "shelling out to Python",
         set(),
-        "Run `python scripts/_docebo_verify_los.py` and read the count.",
+        "Run `python scripts/_verify_counts.py` and read the count.",
         "Bash",
     ),
     (
@@ -636,7 +620,7 @@ SELF_TEST_SIGNALS: list[tuple[str, set[str], str, str | None]] = [
     (
         "noise: a `.playwright-mcp/` cookie jar is a path, not a browser claim",
         {"Bash"},
-        "Instagram needs a logged-in session; `.playwright-mcp/ig-saves/cookies.txt` is it.",
+        "The site needs a logged-in session; `.playwright-mcp/session/cookies.txt` is it.",
         None,
     ),
 ]

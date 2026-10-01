@@ -89,10 +89,3 @@ and every write to it will refuse. Completion is still read from it.
 The consent asks for no email scope, so the doctor cannot confirm the token is Taylor's and not
 someone else's. INSTALL step 5 has Taylor sign in himself; adding the email scope would let the
 doctor check it, at the cost of one more line on the consent screen.
-
-## 12. PowerShell is a second shell (a finding that also applies to PIPER)
-
-Claude Code on Windows with Git Bash enables a native PowerShell tool by default for claude.ai
-accounts and treats it as the primary shell. Every shell gate here matches `Bash|PowerShell`.
-PIPER's gates match `Bash` only, so on Cass's machine a PowerShell command can pass its shell gates
-unchecked. Reported to Mike; not changed in PIPER by this build.

@@ -2,9 +2,9 @@
 
 PORTED FROM PIPER unchanged in logic. Messages re-pointed at this system; the
 allowlist is context/systems.json, which here names only the Google hosts Phase 1
-reaches. OneDrive Known Folder Move is the same risk on Taylor's corporate laptop
-as it was on Cass's: a repo under Documents would sync the register and the OAuth
-token to the tenant cloud without anybody deciding that.
+reaches. OneDrive Known Folder Move is a real risk on Taylor's corporate laptop, as
+it is on any corporate laptop that uses it: a repo under Documents would sync the
+register and the OAuth token to the tenant cloud without anybody deciding that.
 
 Three separate refusals, one hook, because they answer the same question from
 three directions.

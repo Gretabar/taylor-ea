@@ -1,27 +1,25 @@
 """
-One run of a month-end job at a time, for the whole length of the run.
+One run of a scheduled job at a time, for the whole length of the run.
 
 WHY runs_log's LOCK IS NOT THIS LOCK, even though it is the same primitive.
 runs_log holds its lock for the milliseconds a small JSON write takes, and it
-protects the LEDGER. This protects the DECISION MADE FROM THE LEDGER, which is a
-different window and a much longer one: `--if-not-done` reads runs.json at the
-START of a run and record_run writes it at the END, minutes or hours later. Two
-overlapping invocations of the same job both read "not done" for the same month,
-both build it, and both create a Gmail draft to thirteen people. Every entry
-written in that sequence is correct and serialised; the ledger is intact; the
-month still went out twice. Locking a decision means holding the lock across the
-act the decision authorises, so the lock is taken in main() before the ledger is
-read and released after the last month is recorded.
+protects a LEDGER. This protects the DECISION MADE FROM THE LEDGER, which is a
+different window and a much longer one: a job that reads "not done yet" at the
+START of a run and records the result at the END, minutes or hours later, can
+overlap with a second invocation that reads the same "not done yet" and does the
+same work again. Every entry written in that sequence is correct and serialised;
+the ledger is intact; the work still happened twice. Locking a decision means
+holding the lock across the act the decision authorises, so the lock is taken in
+main() before the ledger is read and released after the last result is recorded.
 
 REFUSING TO START IS NOT A FAILURE. A second invocation that finds the job
 already running has nothing to do: the first one is doing it. So hold() raises
 AlreadyRunning, the callers print it, send a WARN, and exit 0 -- no red
-LastTaskResult, no wrapper alarm, no retry, and no second draft. That is the same
-shape as a missing Intercard export: an expected condition with nothing wrong in
-it, reported rather than alarmed. It is an exception and not a False return
-because a caller who forgets to check a return value silently builds the month
-twice, which is the whole failure this module exists to prevent, while a caller
-who forgets to catch crashes loudly and builds nothing.
+LastTaskResult, no wrapper alarm, no retry, and no second run. An expected
+condition with nothing wrong in it is reported rather than alarmed. It is an
+exception and not a False return because a caller who forgets to check a return
+value silently does the work twice, which is the whole failure this module exists
+to prevent, while a caller who forgets to catch crashes loudly and does nothing.
 
 A CRASHED RUN MUST NOT WEDGE THE JOB FOREVER. Same reasoning as runs_log: an
 O_EXCL sentinel file left behind by a killed process is a deadlock, which then
@@ -32,10 +30,8 @@ timeout to tune and nothing to sweep up. The lock file itself is left on disk on
 purpose -- it is a mutex, not a sentinel, and an empty one means nothing.
 
 THERE IS NO TIMEOUT AND NO WAITING, and that is what makes a genuinely long run
-safe. The product-mix job drives Playwright against four locations and its
-scheduled task allows PT2H; nothing here inspects how long the lock has been
-held, so a two-hour hold is indistinguishable from a two-second one and neither
-can be declared stale. hold() takes the lock or refuses immediately. It never
+safe. Nothing here inspects how long the lock has been held, so a two-hour hold
+is indistinguishable from a two-second one and neither can be declared stale. hold() takes the lock or refuses immediately. It never
 queues, because a waiter would eventually acquire the lock and then do exactly
 the duplicate work it waited for.
 
@@ -79,7 +75,7 @@ def hold(path, label=None):
         if not runs_log.try_lock(fd):
             raise AlreadyRunning(
                 f"{label} is already running ({holder(path)}) - this invocation is "
-                f"doing nothing rather than building the same month a second time")
+                f"doing nothing rather than doing the same work a second time")
         _stamp(fd, label)
         try:
             yield path

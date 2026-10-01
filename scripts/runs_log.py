@@ -1,34 +1,25 @@
 """
-The month-end run ledger: which months have been delivered, and how they went.
+A small JSON run ledger: which runs have been delivered, and how they went.
 
-Both month-end jobs keep one of these (product mix in
-output/data/lightspeed-category/runs.json, games in output/data/intercard/runs.json)
-and both read it to answer the only question that matters unattended: has this
-month already been delivered? `--if-not-done` trusts the answer completely, so a
-LOST entry is not a cosmetic bookkeeping problem -- it is a second Gmail draft to
-thirteen people, built and addressed by a scheduled task with no human in the
-loop to notice.
+A job that runs unattended reads its ledger to answer the only question that
+matters: has this already been done? A job that trusts the answer completely
+turns a LOST entry into duplicate work, built by a scheduled task with no human in
+the loop to notice. So the ledger's one job is never to lose an entry.
 
-WHY THIS IS A SHARED MODULE AND NOT A METHOD ON EACH JOB. It used to be six
-identical lines in each of product_mix_monthly.py and games_monthly.py:
-load the file, set one key, write the whole thing back. That is a textbook
-lost update, and on the night of 2026-09-01 it lost one for real. The games run
-at 23:16 recorded 2026-08 "ok"; a run for 2026-07 at 00:09:38 loaded the ledger,
-set its own key and wrote back a copy that had never contained August. The August
-entry did not become wrong, it ceased to exist, and the next --if-not-done pass
-would have rebuilt a month that was already sitting in a finished draft.
-scripts/ig_review_run.py keeps a third ledger with the same race and has NOT been
-migrated here yet.
+WHY THIS IS A SHARED MODULE AND NOT A METHOD ON EACH JOB. Six identical lines in
+each job (load the file, set one key, write the whole thing back) is a textbook
+lost update: two runs that overlap both load the ledger, each sets its own key,
+and whichever writes second writes back a copy that never contained the other's
+entry. The lost entry does not become wrong, it ceases to exist.
 
 ATOMIC REPLACE ALONE IS NOT ENOUGH, and it is worth being precise about why,
 because it is the intuitive fix and it does not work. os.replace makes the write
 indivisible: no reader ever sees a half-written ledger, and a crash mid-write
 leaves the previous ledger intact rather than a truncated file that parses as {}
-and makes every month look undone. What it does not do is make read-modify-write
+and makes every run look undone. What it does not do is make read-modify-write
 indivisible. Two writers can both read the same "before" state, and whichever
 replaces second still writes a document that never contained the other's entry --
-atomically. ig_review_run.py's record_run already does tmp-write-then-replace and
-its docstring already calls that "atomic write"; it has the same lost update.
+atomically.
 
 So the read, the modify and the write all happen while holding an exclusive OS
 lock on a sibling .lock file, and the read happens INSIDE the lock so a writer
@@ -43,15 +34,15 @@ WHY AN OS LOCK RATHER THAN AN O_EXCL SENTINEL. A sentinel file left behind by a
 killed process is a deadlock, which then needs a staleness timeout, which is a
 heuristic that can break a live lock held by a slow writer. An OS byte-range
 lock is released by the kernel when the handle closes, including when the process
-dies -- verified on this machine for both msvcrt (Windows) and a second process.
+dies -- verified for both msvcrt (Windows) and a second process.
 
 WHAT HAPPENS IF THE LOCK CANNOT BE TAKEN. update() waits LOCK_TIMEOUT seconds and
 then writes ANYWAY, loudly, marking the entry. That is deliberate and it is the
-less bad of two bad options. Raising instead would abort a month that was already
-delivered, the wrapper would alarm, the scheduler would retry tomorrow, and
---if-not-done would find no entry and rebuild -- which is precisely the duplicate
-draft this module exists to prevent. A missing entry is the dangerous state; a
-raced entry is merely a wrong one, and it says so in its own detail field.
+less bad of two bad options. Raising instead would abort a run that was already
+delivered, the wrapper would alarm, the scheduler would retry, and the next run
+would find no entry and do the work again -- precisely the duplicate this module
+exists to prevent. A missing entry is the dangerous state; a raced entry is merely
+a wrong one, and it says so in its own detail field.
 """
 
 import json
@@ -62,7 +53,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-# Generous because contention is not supposed to happen: two monthly jobs holding
+# Generous because contention is not supposed to happen: two jobs holding
 # this lock for the milliseconds a small JSON write takes will never queue for
 # thirty seconds unless something is genuinely wedged.
 LOCK_TIMEOUT = 30.0

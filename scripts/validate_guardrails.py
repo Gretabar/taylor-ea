@@ -811,7 +811,7 @@ class Mutation:
     wraps: bool = False
 
 
-def _piper_rule(ctx):
+def _inherited_rule(ctx):
     """The roll call before the fix: every turn without a dispatch is the SOLO block."""
     import _activity as a
     names = a.roster(ctx.dispatches)
@@ -851,8 +851,8 @@ MUTATIONS = [
     Mutation("doc-allowlist", "forced to allow", "module", "docs_edit", "check_allowlist", lambda *a, **k: None),
     Mutation("content", "forced to allow", "module", "validate_content_rules", "check_doc_bound", lambda *a, **k: []),
     Mutation("watchdog", "forced to allow", "module", "notify_owner", "_staleness", lambda *a, **k: ([], None)),
-    Mutation("rollcall", "reverted to PIPER's rule (no dispatch means SOLO)", "module", "_activity", "classify",
-             _piper_rule, must_fail="read-only solo turn (/owe"),
+    Mutation("rollcall", "reverted to the inherited rule (no dispatch means SOLO)", "module", "_activity",
+             "classify", _inherited_rule, must_fail="read-only solo turn (/owe"),
     Mutation("rollcall", "blind to shell commands", "module", "_activity", "shell_writes", lambda command: False,
              must_fail="solo turn with a register add-action"),
     Mutation("rollcall", "blind to the Write tool", "module", "_activity", "WRITE_TOOLS", frozenset(),

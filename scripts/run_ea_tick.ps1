@@ -5,9 +5,9 @@
     scripts\ea_tick.py, alarms through scripts\notify_owner.py, logs to
     logs\ea-tick.log, and has no -Live switch because the tick has no send path.
 
-    WHY A WRAPPER RATHER THAN CALLING python.exe DIRECTLY. STEVIE-QueueSweep failed
-    from 2026-05-25 and nothing alerted, because the process died BEFORE its own
-    error handling ran. Python-level try/except cannot report a failure to START: a
+    WHY A WRAPPER RATHER THAN CALLING python.exe DIRECTLY. A scheduled job whose
+    process dies BEFORE its own error handling runs fails with nothing alerting.
+    Python-level try/except cannot report a failure to START: a
     missing interpreter, an import error, or a crash above main() leaves no Python
     alive to raise the alarm. This watches the exit code from OUTSIDE the process.
 

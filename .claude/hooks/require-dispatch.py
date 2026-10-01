@@ -1,9 +1,8 @@
 """PreToolUse (Write|Edit): no solo writes into the record directories.
 
-Ported from PIPER, which ported it from STEVIE, where "dispatch the work, do not do
-it yourself" was escalated six times in five months and still violated, because it
-lived in a file that only loaded when somebody typed a slash command. Prose has had
-its run everywhere; this is the mechanism.
+Ported from PIPER. "Dispatch the work, do not do it yourself", written only as prose
+in a file that loads when somebody types a slash command, is a rule that gets broken
+however often it is repeated. This is the mechanism.
 
 WHAT IS GATED HERE. output/, plus the three state/ directories that hold records:
 state/proposals/ (Doc edit proposals, PAGE's), state/records/ (parsed Doc snapshots

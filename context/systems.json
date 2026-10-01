@@ -51,7 +51,7 @@
   ],
   "not_visible_from_here": [
     "claude.ai projects and their knowledge files (Taylor's Enterprise seat, not this machine)",
-    "GRETA bots and n8n workflows (Mike's STEVIE and gretabot.app.n8n.cloud)",
+    "GRETA bots and n8n workflows (Mike's own systems)",
     "Supabase projects (Mike's account)",
     "TripleSeat (no integration exists; blueprint s.8 forbids assuming one)",
     "Wispr transcripts (Phase 2)"

@@ -1,7 +1,7 @@
 """What this turn did, for the roll call and the status line: dispatched, wrote, read only, or unknown.
 
-NEW in this repo. PIPER's roll call has two outcomes, the team line or the solo block,
-and the solo block fires on every turn without a dispatch. Here /owe and /morning are
+NEW in this repo. A roll call with two outcomes, the team line or the solo block,
+fires the solo block on every turn without a dispatch. Here /owe and /morning are
 dispatch-free by design, because they only read, so Taylor would see the eight-line
 alarm every morning, learn to skim past it, and miss the one time it means something:
 a capture the orchestrator did alone. The block's own text already says what it is

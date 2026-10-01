@@ -17,7 +17,7 @@ inside a subagent the payload carries `agent_id` and `agent_type` (hooks referen
                                                     orchestrator, whoever it last
                                                     dispatched)
 
-PIPER's transcript-based resolver is deliberately NOT used to grant this. On the
+A transcript-based resolver is deliberately NOT used to grant this. On the
 main thread it names the last agent DISPATCHED, so an orchestrator that dispatched
 WREN and then ran docs_edit.py itself would be waved through as WREN. That is the
 exact call this gate exists to refuse.

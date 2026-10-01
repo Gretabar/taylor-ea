@@ -1,10 +1,10 @@
 # Pin LF everywhere. This machine has core.autocrlf=true, which would rewrite
-# files to CRLF on checkout: every VERBATIM sha256 in VENDORED-FROM.md would stop
+# files to CRLF on checkout: every sha256 in VENDORED-FROM.md would stop
 # matching, and a CRLF _lib.sh fails under bash with "$'\r': command not found".
 * text=auto eol=lf
 
-# VERBATIM copy of PIPER's scripts/runs_log.py, which is itself CRLF. Store its
-# bytes untouched so a fresh clone still matches the sha256 in VENDORED-FROM.md;
-# under the LF rule above, Git would normalise it and the copy would read as
-# "edited in place" on every clone.
+# scripts/runs_log.py came from PIPER with CRLF line endings and is kept that way.
+# Store its bytes untouched so a fresh clone still matches the sha256 in
+# VENDORED-FROM.md; under the LF rule above, Git would normalise it and the
+# file would read as changed on every clone.
 scripts/runs_log.py -text

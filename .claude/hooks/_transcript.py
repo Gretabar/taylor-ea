@@ -1,22 +1,21 @@
-"""Shared dispatch detection for STEVIE's hooks.
+"""Shared dispatch detection for this repo's hooks.
 
-PORTED HERE (it was VERBATIM from PIPER, which had it from STEVIE). Three changes, all
-recorded in VENDORED-FROM.md, all worth taking upstream:
+PORTED FROM PIPER. Three changes made here, recorded in VENDORED-FROM.md:
 
   1. A SLASH COMMAND IS A TURN BOUNDARY. Claude Code records `/add Kaed ...` as a user
      row holding only <command-message>, <command-name> and <command-args> blocks,
      followed by an isMeta row with the expanded prompt (checked against real
-     transcripts, 2026-10-01). Stripping those blocks left the row empty, so it was not
-     a boundary, and for a user who works entirely in slash commands the "turn" ran
-     back to his last plain-text message: the roll call after /morning reported the
-     previous /add's dispatches, and require-dispatch let a solo write through because
-     an EARLIER command had dispatched. A row with a <command-name> block is now a
-     boundary, and the command and its arguments count as typed text. Skill
-     invocations never produce such a row (they arrive as a tool_result), and
-     harness-injected rows (system-reminder, task-notification, local-command-stdout)
-     are still never boundaries.
+     transcripts, 2026-10-01). Stripping those blocks leaves the row empty, so without
+     this rule it is not a boundary, and for a user who works entirely in slash
+     commands the "turn" runs back to his last plain-text message: the roll call after
+     /morning would report the previous /add's dispatches, and require-dispatch would
+     let a solo write through because an EARLIER command had dispatched. A row with a
+     <command-name> block is a boundary, and the command and its arguments count as
+     typed text. Skill invocations never produce such a row (they arrive as a
+     tool_result), and harness-injected rows (system-reminder, task-notification,
+     local-command-stdout) are still never boundaries.
 
-  2. THE TURN'S TOOL USES ARE COLLECTED IN THE SAME PASS. TurnContext now also carries
+  2. THE TURN'S TOOL USES ARE COLLECTED IN THE SAME PASS. TurnContext also carries
      every main-thread tool_use of the turn (name and input) and how many lines in
      the turn failed to parse. The roll call decides "did this turn write?" from the
      same walk that finds its dispatches, so the two can never disagree about where
@@ -24,15 +23,13 @@ recorded in VENDORED-FROM.md, all worth taking upstream:
 
   3. A COMPACTION SUMMARY IS NOT A TURN BOUNDARY. Compaction appends a compact_boundary
      system row and a type=user summary row (isCompactSummary) to the same file. When
-     it fires mid-turn, the summary used to end the walk, hiding the turn's earlier
-     dispatches (a false SOLO) and, once the roll call counts writes, its earlier
-     writes (a false "nothing written").
+     it fires mid-turn, ending the walk there would hide the turn's earlier dispatches
+     (a false SOLO) and its earlier writes (a false "nothing written").
 
-Three hooks need the same fact -- "which agents were dispatched since Mike last
-spoke?" -- and the parse that answers it already existed once, inline, in
-skill_proposer.py. Copying it a third and fourth time would guarantee the four
-copies drift, and a dispatch gate that disagrees with the roll call reporting on
-it is worse than either alone.
+Several hooks need the same fact -- "which agents were dispatched since the user
+last spoke?" -- and a copy of the parse in each would guarantee the copies drift,
+and a dispatch gate that disagrees with the roll call reporting on it is worse than
+either alone.
 
 The load-bearing decision here is the exception. A caller must be able to tell
 "no agents were dispatched" from "I could not look" -- collapsing those two into
@@ -57,7 +54,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Blocks the harness injects INTO a type=user row that Mike did not type. A row
+# Blocks the harness injects INTO a type=user row that the user did not type. A row
 # containing only these is not a turn boundary -- and treating one as a boundary
 # is not a cosmetic error: a backgrounded agent's own completion notification
 # arrives this way, so the notification would erase the dispatch that produced
@@ -82,7 +79,7 @@ class TranscriptUnreadable(Exception):
 
 @dataclass
 class TurnContext:
-    """What happened since Mike's most recent message."""
+    """What happened since the user's most recent message."""
 
     dispatches: list[str] = field(default_factory=list)
     last_user_text: str = ""
@@ -139,12 +136,12 @@ def _typed(message: dict) -> tuple[bool, str]:
 
 
 def _human_text(message: dict) -> str:
-    """Only the part of a user row Mike actually typed, command arguments included."""
+    """Only the part of a user row the user actually typed, command arguments included."""
     return _typed(message)[1]
 
 
 def _is_real_user_turn(event: dict) -> bool:
-    """True only for a message Mike actually typed, a slash command included.
+    """True only for a message the user actually typed, a slash command included.
 
     Excludes sidechain rows (a subagent's own prompt), meta rows (a command's
     expanded prompt among them), the type=user rows that exist solely to carry a
@@ -242,8 +239,8 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
 def roster(dispatches: list[str]) -> list[str]:
     """Uppercase agent names in dispatch order, consecutive repeats collapsed.
 
-    Repeats matter: three parallel MACs is one research step, not three, and
-    "MAC -> MAC -> MAC" reads like a stutter. Non-adjacent repeats are kept
+    Repeats matter: three parallel PAGEs (one proposal per person) is one step, not three,
+    and "PAGE -> PAGE -> PAGE" reads like a stutter. Non-adjacent repeats are kept
     because coming back to an agent later is a real second pass.
 
     Lives here rather than in team-rollcall.py because the status line reports
@@ -259,7 +256,7 @@ def roster(dispatches: list[str]) -> list[str]:
 
 
 def dispatches_this_turn(transcript_path: str | Path | None) -> list[str]:
-    """subagent_type of every Agent call since Mike's most recent message.
+    """subagent_type of every Agent call since the user's most recent message.
 
     Raises TranscriptUnreadable rather than returning [] when it could not look.
     """

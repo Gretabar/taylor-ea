@@ -8,7 +8,7 @@ could not take a pulse is the failure this system exists to prevent.
 It never fixes anything, and touches the network only for the checks that are about the network
 (a token refresh, one read of each registered Doc, one Calendar read).
 
-WHAT CHANGED FROM PIPER. Google instead of Docebo and PUSH: client and token present, refresh with
+WHAT CHANGED FROM PIPER. Google instead of PIPER's own systems: client and token present, refresh with
 the Phase 1 scopes, every registered Doc readable and editable, the Calendar reachable. The repo
 location is checked against context/identity.json. The scheduled task is EA-Tick and its battery
 flags are read back. The build-machine marker is reported, because on Taylor's machine it must not

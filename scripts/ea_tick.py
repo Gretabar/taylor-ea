@@ -13,8 +13,9 @@ run, a heartbeat row only on success, fixed exit codes watched from outside by t
   3. EVERY LINKED CALENDAR SERIES, READ ONLY: next_at and cadence_observed.
   4. A HEARTBEAT ROW, status ok only when every Doc and series was read.
 
-WHY NOT `claude -p`. STEVIE's sweep did that, produced "Unknown skill", and rotted
-for eleven weeks because the process died before its own error handling ran. A
+WHY NOT `claude -p`. A scheduled `claude -p` run can fail where its own error
+handling never sees it (a skill that does not resolve, a process that dies before
+it reports), and then rot unnoticed for weeks. A
 dead tick here costs staleness that the status line and /morning show in red; it
 can never cost a wrong write, because this file has no write path to a Doc at all.
 

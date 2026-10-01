@@ -11,8 +11,7 @@
     THE BATTERY GATE. -AllowStartIfOnBatteries and -DontStopIfGoingOnBatteries both
     default restrictive, so on an unplugged laptop the task simply does not run, and
     -StartWhenAvailable does not help because the blocking condition is power, not
-    availability. Six STEVIE tasks have this defect. Taylor works on a laptop. Do not
-    "clean these up".
+    availability. Taylor works on a laptop. Do not "clean these up".
     ------------------------------------------------------------------------
 
     A DAILY TRIGGER AT 07:00 REPEATING EVERY 4 HOURS FOR A DAY. A laptop asleep at
@@ -21,7 +20,7 @@
 
     WHAT IT RUNS. run_ea_tick.ps1, which runs ea_tick.py: deterministic Python that
     reads the Docs and the Calendar and writes only the local register. It does NOT
-    run `claude -p`; that indirection is what let STEVIE's sweep rot for eleven weeks.
+    run `claude -p`; that indirection is how a scheduled job rots unnoticed for weeks.
 
     The task registers as the current user, not as an administrator, so the token in
     state\google-token.json and the register stay readable by Taylor's own account.

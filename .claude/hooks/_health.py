@@ -1,10 +1,10 @@
 """Tick health and the display label, shared by statusline-ea.py and team-rollcall.py.
 
-NEW in this repo. PIPER computed tick age inside the status line only. Here the
-roll call carries the same line as a fallback, because whether the VS Code
-extension renders a custom statusLine is unverified, and a liveness signal that
-silently does not render is the eleven-week QueueSweep failure again. Two copies
-of the age calculation would be two answers to "is it alive", so it lives here.
+NEW in this repo. The roll call carries the status line's tick line as a fallback,
+because whether the VS Code extension renders a custom statusLine is unverified,
+and a liveness signal that silently does not render is how a dead scheduled job
+goes unnoticed for weeks. Two copies of the age calculation would be two answers to
+"is it alive", so it lives here.
 
 Standard library only and nothing heavy at import: the status line imports this on
 every repaint that misses its cache.

@@ -24,7 +24,7 @@ Why:
   did this move?" without anyone maintaining it.
 - Your running Docs stay the place you and your managers actually read, as the blueprint requires;
   the register sits underneath and is not a second thing you have to keep up.
-- It is the same pattern the HR assistant (PIPER) already uses.
+- It is a pattern Mike already runs in another assistant he maintains.
 
 What it affects: only the "proposed implementation" text in section 3, not a protected requirement.
 The register is not visible in Drive; you see it through `/owe`, `/morning` and the Docs.

@@ -1,13 +1,12 @@
 #!/bin/bash
-# Shared helpers for STEVIE's hooks. Source this, don't execute it.
+# Shared helpers for this repo's shell hooks. Source this, don't execute it.
 #
-# The problem this exists to solve: every hook here used to read its payload
-# with a bare `jq -r ...`. When jq is absent that substitution yields an empty
-# string, every subsequent grep misses, and the hook exits 0 -- so a missing
-# parser turned the destructive-command gate into a pass-through that ALLOWED
-# the thing it was written to block. An empty field and an unreadable payload
-# are different facts, and conflating them is the same short-circuit-to-pass
-# the repo's validators exist to catch.
+# The problem this exists to solve: a hook that reads its payload with a bare
+# `jq -r ...` gets an empty string when jq is absent, every subsequent grep
+# misses, and the hook exits 0 -- so a missing parser turns a blocking gate into
+# a pass-through that ALLOWS the thing it was written to block. An empty field
+# and an unreadable payload are different facts, and conflating them is the same
+# short-circuit-to-pass the repo's validators exist to catch.
 #
 # hook_field prints the extracted value and returns 0 when it could parse at
 # all, or returns 3 when no parser is available. Callers MUST treat 3 as

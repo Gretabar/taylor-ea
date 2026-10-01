@@ -3,8 +3,8 @@
 PORTED FROM PIPER. STANDALONE MEANS IT DRIFTS. This system runs on Taylor's
 machine and is maintained on Mike's; PIPER and STEVIE keep evolving. The moment a
 fix lands in a shared file, one copy has it and the other does not, and nothing
-anywhere says so. Copies are fine. UNDOCUMENTED copies are how one parser ended up
-in four places in STEVIE, three of them subtly different.
+anywhere says so. Copies are fine. UNDOCUMENTED copies are how one parser ends up
+in four places, three of them subtly different.
 
 So VENDORED-FROM.md is a machine-readable table, and this reads it back:
 

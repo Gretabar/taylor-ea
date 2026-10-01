@@ -1,6 +1,6 @@
 ---
 name: delivery-gate
-description: "WREN's rules for writing to a running Doc: run scripts/docs_edit.py with PAGE's proposal, read the RESULT, and report success only when the read-back proved it. Owner: WREN. The Phase 1 counterpart of PIPER's send-gate."
+description: "WREN's rules for writing to a running Doc: run scripts/docs_edit.py with PAGE's proposal, read the RESULT, and report success only when the read-back proved it. Owner: WREN."
 ---
 
 # Delivery gate

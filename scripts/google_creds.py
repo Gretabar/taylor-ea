@@ -4,8 +4,8 @@ PORTED FROM STEVIE's upload_to_drive.load_credentials (stitch the token with the
 OAuth client, refresh) and scripts/marketing_report/google_auth.py (the scope check).
 What changed: one load_credentials(scopes) for every script; paths from
 EA_ROOT/state/ only, so no user profile path appears anywhere; both token shapes
-accepted, because STEVIE's token.json is a hand-rolled hybrid and a fresh consent
-writes the authorized-user shape.
+accepted, because a token written by other tooling can be a hand-rolled hybrid and
+a fresh consent writes the authorized-user shape.
 
 TWO FILES, NEITHER IN GIT, NEITHER IN THE KIT:
     state/google-client.json   the installed-app OAuth client (Greta's GCP project

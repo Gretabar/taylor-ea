@@ -11,7 +11,7 @@
     "whatever comment or frontmatter form the format allows. JSON may carry it as a key:",
     "\"ea-class\": \"records\". Undeclared is blocked.",
     "",
-    "The named-list sniffer PIPER runs is OFF here (applies_to is empty): the roster is",
+    "The named-list sniffer is OFF here (applies_to is empty): the roster is",
     "six managers, so every 1:1 record names one of them by design, and a sniffer that",
     "fires on every legitimate record is a sniffer somebody switches off."
   ],

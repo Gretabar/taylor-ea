@@ -7,21 +7,22 @@ REED -> PAGE -> WREN; docs/FOR-TAYLOR.md tells him so.
 
 THE CASES ARE DELIBERATELY ASYMMETRIC and that asymmetry is the whole design. A
 dispatched turn gets one compact line meant to be skimmed past. A solo turn that
-wrote gets a full-width block. STEVIE tried one short line for each and the honest
-report back was "it was so small I almost missed it".
+wrote gets a full-width block. One short line for each case was tried before, and
+the honest report back was "it was so small I almost missed it".
 
-A SOLO TURN THAT ONLY READ GETS ONE QUIET LINE, and that is the change from PIPER.
-/owe and /morning are dispatch-free by design, so PIPER's rule ("no dispatch, show
-the block") would put the alarm on Taylor's screen every morning until he stopped
-reading it, and the one capture that ran solo would scroll past with the rest.
+A SOLO TURN THAT ONLY READ GETS ONE QUIET LINE, and that is the change from the
+port. /owe and /morning are dispatch-free by design, so the inherited rule ("no
+dispatch, show the block") would put the alarm on Taylor's screen every morning
+until he stopped reading it, and the one capture that ran solo would scroll past
+with the rest.
 _activity.py decides which case a turn is, from the same transcript walk that names
 the roster, and an unreadable turn is UNVERIFIED, never the quiet line.
 
 WHAT IS ADDED HERE.
 
   The tick-health line. Whether the VS Code extension renders a custom statusLine
-  is unverified, and a liveness signal that silently does not render is the
-  eleven-week QueueSweep failure again. So the roll call carries the same fact the
+  is unverified, and a liveness signal that silently does not render is how a dead
+  scheduled job goes unnoticed for weeks. So the roll call carries the same fact the
   status line does: one short line when healthy, a framed block when the tick is
   stale or has never run.
 
