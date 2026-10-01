@@ -93,7 +93,7 @@ Vendored 2026-10-01.
 | `scripts/ea_doctor.py` | `PIPER:scripts/piper_doctor.py` | `untracked` | `122f92ab171b0e98e6dbd438d864c030f450bc9eed9035eccb5a3d29a5b156df` | `0a419f2cfa75f4f04f8025a11b94e5a9fe50c30eecc096c7499ccca11389fcc9` | PORT |
 | `scripts/build_ea_kit.py` | `PIPER:scripts/build_piper_kit.py` | `untracked` | `0080c36bd42134f51a424dc84fa8b4a2054f56505b0648d858740edb1d6961a5` | `6bc50423697154d04667ee363e1a3bb9f4f87b22593ce2e66ac931e5bc8138c5` | PORT |
 | `scripts/export_ledger.py` | `PIPER:scripts/export_ledger.py` | `untracked` | `7ec4a5b24c17a2acf3fca35b96d4a8f721d451948244a3623d0b1b00616b81cb` | `ec6cd3f362aa2b609cf5721f9e926d382e0b91a978322b1be06c641e98633bac` | PORT |
-| `.gitignore` | `PIPER:.gitignore` | `untracked` | `367e93e20e9ac36fed36e3ac3b044098f0d339a4ea6c4fa955822304d3a8aff1` | `6efcb252c9193a56ce951df6daed0ef43a8b79d766631c0420ca3182070dcd28` | PORT |
+| `.gitignore` | `PIPER:.gitignore` | `untracked` | `367e93e20e9ac36fed36e3ac3b044098f0d339a4ea6c4fa955822304d3a8aff1` | `95ab1ca891c26fcdab3d8c6d197d166ada36adbd20b14556c5b987adf4e9be0d` | PORT |
 | `.env.example` | `PIPER:.env.example` | `untracked` | `1e43694bb0ba53d1daeb0a8bb1874f29a5307e3148619fef2e150f1409ee4f2e` | `25e301fba8882b549f7bafa132f9da665a5eed13b3d88fe25d9c9726eba45dfd` | PORT |
 | `requirements.txt` | `PIPER:requirements.txt` | `untracked` | `a0cb47cff08849bb572c4381836da9c07c71a4874d1646db622688b304ca47f4` | `15a2869787f5a6a48f9a7e0d7cf2ce26eb13876543e88889ea4a59c46ca4a4b2` | PORT |
 | `context/data-classes.json` | `PIPER:context/data-classes.json` | `untracked` | `2ca484126dab62a834c7b813e8538970c9ad72734190542d8199e41e237f91a7` | `e1b337310f6f003bd8872b7c15d8371a9e1a0c36efd3ed073e5998e50049215a` | PORT |
