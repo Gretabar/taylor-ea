@@ -669,6 +669,15 @@ def check_roster_files(agents: dict[str, tuple[dict, str]], roster_team) -> list
         want = str(agent.get("model") or "")
         if want and str(data.get("model") or "") != want:
             failures.append(f"{path}: model {data.get('model')!r}, but context/roster-agents.json says {want!r}")
+        if agent.get("read_only") is True:
+            # confine-read-only-agent.py limits its Bash to a list; every other tool must be absent here,
+            # so the hook is never the only thing between a read-only agent and a write.
+            tools = data.get("tools")
+            extra = (sorted(set(tools) - READ_ONLY_TOOLS - {"Bash"}) if isinstance(tools, list)
+                     else ["every tool (no tools: list)"])
+            if extra:
+                failures.append(f"{path}: {name} is read only (context/roster-agents.json) but holds "
+                                f"{', '.join(extra)}; it may hold only {', '.join(sorted(READ_ONLY_TOOLS))} and Bash")
         status = roster_team.status(name)
         if status is None or status.active:
             continue
@@ -685,10 +694,11 @@ def check_roster_files(agents: dict[str, tuple[dict, str]], roster_team) -> list
 
 
 def _self_test_team():
-    """A two-agent team, fixed here, so the roster checks are proven without the repo's own files."""
+    """A three-agent team, fixed here, so the roster checks are proven without the repo's own files."""
     phases = {"phases": {str(n): {"approved": n == 1} for n in range(1, 8)}}
     roster = {"agents": [{"name": "REED", "phase": 1, "model": "opus", "lane": "Action Register"},
-                         {"name": "MILO", "phase": 2, "model": "opus", "lane": "meetings and transcripts"}],
+                         {"name": "MILO", "phase": 2, "model": "opus", "lane": "meetings and transcripts"},
+                         {"name": "LARK", "phase": 1, "model": "sonnet", "lane": "prep", "read_only": True}],
               "build_record": {"phase 1": {"accepted": "2026-10-01"}}}
     return team.Team(roster, phases, {"deviations": {}})
 
@@ -745,13 +755,26 @@ def self_test() -> int:
     found = check_roster_files({".claude/agents/reed.md": ({"model": "opus", "tools": ["Read", "Bash"]}, "")}, fixed)
     if found:
         problems.append(f"a switched-on agent may hold Bash: expected silence, got {found}")
+    read_only_cases = [
+        ("a read-only agent holding Write is a failure", {"model": "sonnet", "tools": ["Read", "Bash", "Write"]},
+         "is read only"),
+        ("a read-only agent with no tools: list inherits everything", {"model": "sonnet"}, "every tool"),
+        ("a read-only agent holding Read, Grep, Glob and Bash passes",
+         {"model": "sonnet", "tools": ["Read", "Grep", "Glob", "Bash"]}, None),
+    ]
+    for label, frontmatter, expected in read_only_cases:
+        found = check_roster_files({".claude/agents/lark.md": (frontmatter, "")}, fixed)
+        if expected is None and found:
+            problems.append(f"{label}: expected silence, got {found}")
+        elif expected is not None and not any(expected in f for f in found):
+            problems.append(f"{label}: expected a finding with {expected!r}, got {found or 'nothing'}")
 
     if problems:
         print(f"SELF-TEST FAIL -- {len(problems)} check(s) no longer behave as documented:\n")
         for problem in problems:
             print(f"  {problem}")
         return 1
-    cases = len(SELF_TEST_SIGNALS) + len(SELF_TEST_OWNERS) + 2 + len(roster_cases) + 1
+    cases = len(SELF_TEST_SIGNALS) + len(SELF_TEST_OWNERS) + 2 + len(roster_cases) + 1 + len(read_only_cases)
     print(f"SELF-TEST OK -- {cases} cases: every signal fires, every suppression holds")
     return 0
 

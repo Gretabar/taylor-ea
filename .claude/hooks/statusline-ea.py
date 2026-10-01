@@ -6,6 +6,7 @@ _health.py so this bar and the roll call's fallback line cannot disagree, and th
 tick job is ea_tick.
 
     NAME  ticks OK (2h ago)   REED>PAGE>WREN (3)     green
+    NAME  ticks OK (2h ago)   WREN running           green   (its result is not written yet)
     NAME  ticks OK (2h ago)   read only              dim     (/owe, /morning)
     NAME  ticks OK (2h ago)   -- SOLO --             yellow  (no dispatch, and it wrote)
     NAME  LAST TICK 6 DAYS AGO                       red
@@ -43,7 +44,7 @@ BRIGHT_YELLOW = "\033[1;33m"
 DIM = "\033[2m"
 RESET = "\033[0m"
 
-CACHE_FORMAT = 2
+CACHE_FORMAT = 3  # 3: dispatches need positive evidence, and "pending" exists
 
 
 def _color_enabled() -> bool:
@@ -130,6 +131,9 @@ def render(label: str, kind: str | None, names: list[str], hours: float | None, 
         if len(names) > MAX_SHOWN:
             chain = f"+{len(names) - MAX_SHOWN}>{chain}"
         team, team_color = f"{chain}  ({len(names)})", GREEN
+    elif kind == "pending" and names:
+        # An agent whose result is not written yet. Not counted as dispatched until it is.
+        team, team_color = f"{'>'.join(names[-MAX_SHOWN:])} running", GREEN
     elif kind == "wrote":
         team, team_color = "-- SOLO --", BRIGHT_YELLOW
     elif kind == "read_only":

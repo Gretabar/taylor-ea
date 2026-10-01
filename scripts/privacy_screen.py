@@ -20,10 +20,20 @@ lights" and "holiday party bookings" all pass. A guest complaint, a fire inspect
 the health inspector and a family-style menu pass too; one person's raise, a write-up,
 sick leave or a family matter does not.
 
+IT READS THE WORDS AS A PERSON SEES THEM. The text is NFKC-normalised (full-width
+letters, ligatures and composed accents become their plain forms) and every invisible
+format character is removed first (zero-width spaces and joiners, soft hyphens, the
+byte-order mark), so "med<soft hyphen>ical leave" and "medi<zero-width space>cal leave"
+are read as the "medical leave" the manager will see. A name is any capitalised word in
+any alphabet, so "Zoe's raise" with a diaeresis and "Eric's salary" with an acute accent
+are one person's pay, as plainly as "Kaed's raise".
+
 WHAT IT CANNOT DO, stated: it reads words, not meaning. A sensitive matter phrased
 without any of these words passes, which is why SAGE's prose also tells PAGE and the
 orchestrator to route anything personal through SAGE when in doubt, and why the
-register and the Doc are both covered in docs/PRIVACY.md.
+register and the Doc are both covered in docs/PRIVACY.md. Look-alike letters from
+another alphabet (a Cyrillic "e" in "medical") are not mapped; NFKC does not treat them
+as the same letter.
 
 Categories, in the order they are checked (the first match names the category):
 harassment or complaint, discipline, legal or immigration, leave of absence, mental
@@ -38,6 +48,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass
 
 
@@ -46,9 +57,20 @@ def _words(*alternatives: str) -> re.Pattern[str]:
     return re.compile(r"\b(?:" + "|".join(alternatives) + r")\b", re.I)
 
 
-# A person's name, possessive: a capital letter, matched case-SENSITIVELY even though
-# the patterns around it are not, so "the bar's pay" and "staff's pay" do not count.
-_NAMED = r"(?-i:[A-Z][a-z]+)(?:'s|’s)"
+def _letters(test) -> str:
+    """A regex character class of every letter below U+3000 for which `test` holds: Latin with its
+    accents, Greek, Cyrillic and the rest of the alphabets a name on this roster could be written in."""
+    found = [chr(c) for c in range(0x3000) if test(chr(c)) and chr(c).isalpha()]
+    return "[" + "".join(re.escape(ch) for ch in found) + "]"
+
+
+_UPPER = _letters(str.isupper)
+_LOWER = _letters(str.islower)
+# A person's name: a capital letter then lower-case ones, in any alphabet, matched
+# case-SENSITIVELY even though the patterns around it are not, so "the bar's pay" and
+# "staff's pay" do not count.
+_NAME = rf"(?-i:{_UPPER}{_LOWER}+)"
+_NAMED = _NAME + r"(?:'s|\u2019s)"
 _PAY_WORD = (r"(?:raise|salary|wages?|pay(?![\s-]*(?:roll|cut-?off|period|run|day))(?:\s+rate)?|hourly\s+rate"
              r"|rate\s+of\s+pay|compensation|bonus(?![\s-]+(?:structure|plan|program|pool|scheme|policy|criteria)))")
 
@@ -112,8 +134,8 @@ CATEGORIES: tuple[tuple[str, re.Pattern[str]], ...] = (
         r"\b(?:his|her|their)\s+" + _PAY_WORD + r"\b"
         r"|" + _NAMED + r"\s+" + _PAY_WORD + r"\b"
         r"|\b(?:raise|pay\s+(?:rise|increase|bump)|salary\s+increase|bonus)\s+for\s+"
-        r"(?:him|her|them|(?-i:[A-Z][a-z]+))\b"
-        r"|\b(?:give|gave|giving|get|got|getting|ask(?:ed|ing)?\s+for)\s+(?:(?:him|her|them|(?-i:[A-Z][a-z]+))\s+)?a\s+raise\b"
+        r"(?:him|her|them|" + _NAME + r")\b"
+        r"|\b(?:give|gave|giving|get|got|getting|ask(?:ed|ing)?\s+for)\s+(?:(?:him|her|them|" + _NAME + r")\s+)?a\s+raise\b"
         r"|\bpay\s+cuts?\b(?![\s-]*off)"
         r"|\bsalary\s+(?:review|bump|cut|adjustment|negotiation|discussion|increase)\b"
         r"|\b(?:cut|reduce|increase|adjust|raise)\s+(?:his|her|their|" + _NAMED + r")\s+"
@@ -130,10 +152,18 @@ class Flag:
     matched: str
 
 
+def readable(text: str) -> str:
+    """`text` as a reader sees it: NFKC-normalised, with every invisible format character
+    (Unicode category Cf: zero-width space and joiners, soft hyphen, BOM) removed."""
+    folded = unicodedata.normalize("NFKC", text or "")
+    return "".join(ch for ch in folded if unicodedata.category(ch) != "Cf")
+
+
 def screen(text: str) -> Flag | None:
-    """The first category whose words appear in `text`, or None."""
+    """The first category whose words appear in `text`, read as a person reads it, or None."""
+    seen = readable(text)
     for category, pattern in CATEGORIES:
-        found = pattern.search(text or "")
+        found = pattern.search(seen)
         if found:
             return Flag(category, found.group(0))
     return None

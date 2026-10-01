@@ -205,6 +205,17 @@ def check_privacy(conn, proposal: dict) -> None:
         raise Refused(f"SAGE is holding this proposal ({category}): {stamp['reason']}")
 
 
+def recheck_privacy(conn, proposal: dict) -> None:
+    """check_privacy() again, at the moment of the write.
+
+    The first check runs before the Doc is fetched and the edit is planned, which takes
+    seconds over the network. A hold SAGE records in that window must stop the write,
+    so the newest verdict is read again immediately before every request that puts the
+    proposal's words into the Doc: the row insert or edit, and the fill of a new row.
+    """
+    check_privacy(conn, proposal)
+
+
 # ---------------------------------------------------------------------------
 # request planning (pure)
 # ---------------------------------------------------------------------------
@@ -563,8 +574,12 @@ def remove_blank_row(service, proposal: dict, smap: dict) -> str:
     return "removed"
 
 
-def fill_new_row(service, proposal: dict, smap: dict, tz_name: str, notes: list[str]) -> None:
-    """Phase B. Fill the row phase A inserted, or remove it again. Never leaves it silently."""
+def fill_new_row(service, proposal: dict, smap: dict, tz_name: str, notes: list[str], conn=None) -> None:
+    """Phase B. Fill the row phase A inserted, or remove it again. Never leaves it silently.
+
+    The fill is what puts the words into the Doc, so SAGE's verdict is read once more
+    right before it; a hold recorded since phase A removes the empty row instead.
+    """
     from googleapiclient.errors import HttpError  # noqa: PLC0415
 
     section, index = proposal["section"], proposal["_new_row"]
@@ -587,6 +602,12 @@ def fill_new_row(service, proposal: dict, smap: dict, tz_name: str, notes: list[
             # to the cleanup below instead of escaping and stranding that row.
             failure = f"the fill could not be planned ({exc.__class__.__name__}: {exc})"
             break
+        if conn is not None:
+            try:
+                recheck_privacy(conn, proposal)
+            except Refused as exc:
+                failure = f"SAGE's verdict changed before the row was filled ({exc})"
+                break
         try:
             _batch(service, proposal["doc_id"], requests, revision)
             return
@@ -669,6 +690,7 @@ def apply(kind: str, proposal_path: Path, *, doc_arg: str | None, simulate_stale
                 return outcome
             write_revision = (_stale_revision(conn, proposal["doc_id"], revision, proposal.get("basis_revision_id"))
                               if simulate_stale else revision)
+            recheck_privacy(conn, proposal)  # SAGE's newest verdict, read again at the moment of writing
             try:
                 response = _batch(service, proposal["doc_id"], requests, write_revision)
                 break
@@ -696,7 +718,7 @@ def apply(kind: str, proposal_path: Path, *, doc_arg: str | None, simulate_stale
                 break
 
         if proposal.get("_new_row") is not None:
-            fill_new_row(service, proposal, smap, tz_name, notes)
+            fill_new_row(service, proposal, smap, tz_name, notes, conn)
             response = response or {"phase_b": "sent"}
 
         try:

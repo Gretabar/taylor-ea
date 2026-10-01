@@ -1,6 +1,6 @@
 """Shared dispatch detection for this repo's hooks.
 
-PORTED FROM PIPER. Four changes made here, recorded in VENDORED-FROM.md:
+PORTED FROM PIPER. Five changes made here, recorded in VENDORED-FROM.md:
 
   1. A SLASH COMMAND IS A TURN BOUNDARY. Claude Code records `/add Kaed ...` as a user
      row holding only <command-message>, <command-name> and <command-args> blocks,
@@ -34,8 +34,20 @@ PORTED FROM PIPER. Four changes made here, recorded in VENDORED-FROM.md:
      with is_error and either Claude Code's own toolDenialKind field or a
      "PreToolUse:" hook message (both observed on a live VS Code session, v2.1.222,
      2026-10-01). A refused dispatch goes to TurnContext.refused, and each tool use
-     carries `refused`. It is evidence, not inference: if a gate ever failed open,
-     the agent that ran is named, because nothing refused it.
+     carries `refused`.
+
+  5. A DISPATCH COUNTS ONLY ON POSITIVE EVIDENCE THAT THE AGENT RAN: its Agent
+     tool_use has a result in this turn, and the result is not a refusal. "No refusal
+     found" is not evidence, because a refusal can fail to be found: its row truncated
+     mid-flush, its text wrapped in a <tool_use_error> tag, or not written yet. So a
+     call with no result yet goes to TurnContext.pending, and a call whose result is an
+     error that is not a recognised refusal goes to TurnContext.unclear. Neither is a
+     dispatch. Every Agent error Claude Code wrote in this machine's transcripts
+     carried toolDenialKind (checked 2026-10-01); an agent that ran and failed comes
+     back as an ordinary result describing the failure, which is positive evidence.
+     doubts() names what makes the rest of the turn untrustworthy: a line that did not
+     parse (it may have been the turn's start, or a refusal) and a turn whose start was
+     never found. Callers decide what a doubt costs; none of them reads it as clean.
 
 Several hooks need the same fact -- "which agents were dispatched since the user
 last spoke?" -- and a copy of the parse in each would guarantee the copies drift,
@@ -88,9 +100,20 @@ class TranscriptUnreadable(Exception):
     """
 
 
+# What became of one Agent call, from its tool_result in the same turn.
+RAN = "ran"            # a result that is not a refusal: the agent started
+DENIED = "denied"      # refused before it started: a hook, a permission rule, or the user
+UNCLEAR = "unclear"    # an error result that is not a recognised refusal: cannot tell
+PENDING = "pending"    # no result in this turn yet: still running, or not written
+
+
 @dataclass
 class TurnContext:
-    """What happened since the user's most recent message."""
+    """What happened since the user's most recent message.
+
+    `dispatches` holds only agents with positive evidence that they ran. `refused`,
+    `pending` and `unclear` hold the other Agent calls; none of them is a dispatch.
+    """
 
     dispatches: list[str] = field(default_factory=list)
     last_user_text: str = ""
@@ -99,6 +122,17 @@ class TurnContext:
     tool_uses: list[dict] = field(default_factory=list)
     unparsed_lines: int = 0
     refused: list[str] = field(default_factory=list)
+    pending: list[str] = field(default_factory=list)
+    unclear: list[str] = field(default_factory=list)
+
+    def doubts(self) -> list[str]:
+        """Why this turn's record cannot be taken at its word. Empty when it can."""
+        reasons = []
+        if self.unparsed_lines:
+            reasons.append(f"{self.unparsed_lines} line(s) of this turn did not parse")
+        if not self.found_turn_boundary:
+            reasons.append("the start of this turn was not found")
+        return reasons
 
 
 def _read_lines(transcript_path: str | Path | None) -> list[str]:
@@ -122,18 +156,18 @@ def _read_lines(transcript_path: str | Path | None) -> list[str]:
 
 
 def _text_of(message: dict) -> str:
-    """Join the plain-text blocks of a message, ignoring tool_result blocks."""
-    content = message.get("content")
+    """Join the plain-text blocks of a message, ignoring tool_result blocks. Never raises on odd shapes."""
+    content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, str):
         return content
     if not isinstance(content, list):
         return ""
     parts = [
-        block.get("text", "")
+        block.get("text")
         for block in content
         if isinstance(block, dict) and block.get("type") == "text"
     ]
-    return "\n".join(p for p in parts if p)
+    return "\n".join(p for p in parts if isinstance(p, str) and p)
 
 
 def _typed(message: dict) -> tuple[bool, str]:
@@ -179,7 +213,7 @@ def _tool_uses(event: dict) -> list[dict]:
     message = event.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     return [{"name": block.get("name"), "input": block.get("input"), "id": block.get("id")}
-            for block in content or []
+            for block in (content if isinstance(content, list) else [])
             if isinstance(block, dict) and block.get("type") == "tool_use"]
 
 
@@ -187,13 +221,16 @@ def _agent_calls(event: dict) -> list[tuple[str, str]]:
     """(subagent_type, tool_use id) of every Agent call in one assistant event. Task is its older name."""
     if event.get("type") != "assistant" or event.get("isSidechain") is True:
         return []
+    message = event.get("message")
+    content = message.get("content") if isinstance(message, dict) else None
     found = []
-    for block in event.get("message", {}).get("content", []) or []:
+    for block in content if isinstance(content, list) else []:
         if not isinstance(block, dict) or block.get("type") != "tool_use":
             continue
         if block.get("name") in ("Agent", "Task"):
             given = block.get("input")
-            found.append(((given or {}).get("subagent_type", "") if isinstance(given, dict) else "",
+            kind = given.get("subagent_type") if isinstance(given, dict) else None
+            found.append((kind if isinstance(kind, str) else ("" if kind is None else str(kind)),
                           str(block.get("id") or "")))
     return found
 
@@ -203,31 +240,45 @@ def _result_text(block: dict) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+        return "\n".join(b.get("text") for b in content
+                         if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str))
     return ""
 
 
-def _denied_ids(event: dict) -> set[str]:
-    """tool_use ids whose call was refused before it ran: by a hook, a permission rule, or the user.
+def _result_kind(event: dict, block: dict) -> str:
+    """RAN, DENIED or UNCLEAR for one tool_result block.
 
-    is_error alone is not enough: a subagent that ran and then failed also returns an
-    error, and it may have done things first. A refusal carries Claude Code's own
-    toolDenialKind on the row, or a hook's "PreToolUse:" message.
+    A refusal is an error result carrying Claude Code's own toolDenialKind, or a hook's
+    message starting "PreToolUse:". An error that is neither might be a refusal in
+    another wrapper or a call that failed after starting, so it is UNCLEAR. A result
+    that is not an error is RAN, unless it reads like a refusal anyway.
     """
+    text = _result_text(block).lstrip()
+    if block.get("is_error") is True:
+        return DENIED if event.get("toolDenialKind") or text.startswith("PreToolUse:") else UNCLEAR
+    if event.get("toolDenialKind") or text.startswith(("PreToolUse:", "<tool_use_error>")):
+        return UNCLEAR
+    return RAN
+
+
+def _results(event: dict) -> dict[str, str]:
+    """tool_use id -> RAN, DENIED or UNCLEAR for every tool_result in one main-thread user row."""
     if event.get("type") != "user" or event.get("isSidechain") is True:
-        return set()
+        return {}
     message = event.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, list):
-        return set()
-    found = set()
+        return {}
+    found = {}
     for block in content:
-        if not isinstance(block, dict) or block.get("type") != "tool_result" or block.get("is_error") is not True:
-            continue
-        if event.get("toolDenialKind") or _result_text(block).startswith("PreToolUse:"):
-            if block.get("tool_use_id"):
-                found.add(str(block["tool_use_id"]))
+        if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
+            found[str(block["tool_use_id"])] = _result_kind(event, block)
     return found
+
+
+def _call_state(results: dict[str, str], use_id: str) -> str:
+    """What became of one call: its result's kind, or PENDING when this turn holds no result for it."""
+    return results.get(use_id, PENDING) if use_id else PENDING
 
 
 def turn_context(transcript_path: str | Path | None) -> TurnContext:
@@ -243,20 +294,20 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
         return ctx
 
     parsed_any = False
-    dispatches_reversed: list[str] = []
-    refused_reversed: list[str] = []
+    by_state: dict[str, list[str]] = {RAN: [], DENIED: [], UNCLEAR: [], PENDING: []}  # each reversed
     tool_uses_reversed: list[dict] = []
     # Walking backwards, a call's result row is met before the call itself.
-    denied: set[str] = set()
+    results: dict[str, str] = {}
 
     for line in reversed(lines):
         try:
             event = json.loads(line)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
             # One truncated line (a transcript mid-flush) is normal and is not
             # the same fact as a file that holds no JSON at all; the
             # parsed_any check below covers the latter. It IS counted, because a
-            # line nobody could read may have been a tool call.
+            # line nobody could read may have been a tool call, a refusal or the
+            # start of this turn. RecursionError: a line nested thousands deep.
             ctx.unparsed_lines += 1
             continue
         if not isinstance(event, dict):
@@ -272,11 +323,15 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
             ctx.found_turn_boundary = True
             break
 
-        denied |= _denied_ids(event)
+        for use_id, kind in _results(event).items():
+            # Two results for one call that disagree prove nothing either way.
+            results[use_id] = kind if results.get(use_id, kind) == kind else UNCLEAR
         for subagent_type, use_id in reversed(_agent_calls(event)):
-            (refused_reversed if use_id and use_id in denied else dispatches_reversed).append(subagent_type)
+            by_state[_call_state(results, use_id)].append(subagent_type or "general-purpose")
         for use in reversed(_tool_uses(event)):
-            use["refused"] = bool(use.get("id")) and str(use.get("id")) in denied
+            state = _call_state(results, str(use.get("id") or ""))
+            use["result"] = state
+            use["refused"] = state == DENIED
             tool_uses_reversed.append(use)
 
     if not parsed_any:
@@ -284,8 +339,10 @@ def turn_context(transcript_path: str | Path | None) -> TurnContext:
             f"no line of {transcript_path} parsed as JSON ({len(lines)} tried)"
         )
 
-    ctx.dispatches = [s for s in reversed(dispatches_reversed) if s]
-    ctx.refused = [s or "general-purpose" for s in reversed(refused_reversed)]
+    ctx.dispatches = list(reversed(by_state[RAN]))
+    ctx.refused = list(reversed(by_state[DENIED]))
+    ctx.unclear = list(reversed(by_state[UNCLEAR]))
+    ctx.pending = list(reversed(by_state[PENDING]))
     ctx.tool_uses = list(reversed(tool_uses_reversed))
     return ctx
 
@@ -300,17 +357,29 @@ def roster(dispatches: list[str]) -> list[str]:
     Lives here rather than in team-rollcall.py because the status line reports
     the same fact and must render the same names -- a bar that disagrees with
     the roll call is worse than either alone.
+
+    Only this repo's own `ea:` prefix is dropped. Another plugin's `x:sage` is shown
+    as X:SAGE, never as SAGE: it is not the SAGE on this team.
     """
     names = []
     for raw in dispatches:
-        name = (raw or "").split(":")[-1].strip().upper()
+        name = display_name(raw)
         if name and (not names or names[-1] != name):
             names.append(name)
     return names
 
 
+def display_name(raw: str) -> str:
+    """'reed' and 'ea:reed' -> 'REED'; 'otherplugin:sage' -> 'OTHERPLUGIN:SAGE'."""
+    text = str(raw or "").strip()
+    prefix, sep, name = text.partition(":")
+    if sep and prefix.strip().lower() == "ea" and ":" not in name:
+        text = name
+    return text.strip().upper()
+
+
 def dispatches_this_turn(transcript_path: str | Path | None) -> list[str]:
-    """subagent_type of every Agent call since the user's most recent message.
+    """subagent_type of every Agent call since the user's most recent message that demonstrably ran.
 
     Raises TranscriptUnreadable rather than returning [] when it could not look.
     """

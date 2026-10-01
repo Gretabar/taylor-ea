@@ -61,18 +61,26 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import _audit  # noqa: E402
-from _gate import (  # noqa: E402
-    REPO_ROOT,
-    PayloadUnreadable,
-    block,
-    deny_environment,
-    first_field,
-    is_build_machine,
-    read_payload,
-    repo_relative,
-    resolve_agent,
-)
+from _failsafe import run_gate  # noqa: E402  -- standard library only, so it loads when the rest cannot
+
+# A failed import must end in a refusal, never in Python's own exit 1, which lets the call through.
+try:
+    import _audit  # noqa: E402
+    from _gate import (  # noqa: E402
+        REPO_ROOT,
+        PayloadUnreadable,
+        block,
+        deny_environment,
+        first_field,
+        is_build_machine,
+        read_payload,
+        repo_relative,
+        resolve_agent,
+    )
+except BaseException as _exc:  # noqa: BLE001  -- SystemExit and KeyboardInterrupt at import refuse too
+    _IMPORT_ERROR: BaseException | None = _exc  # swallow: run_gate refuses every call, naming this error
+else:
+    _IMPORT_ERROR = None
 
 HOOK = "protect-architecture"
 OVERRIDE = "architecture change ok"
@@ -360,4 +368,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_gate(HOOK, main, _IMPORT_ERROR))

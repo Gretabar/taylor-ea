@@ -26,9 +26,12 @@ python scripts/prep.py --person <the name as Taylor said it>
 python scripts/prep.py --person <key> --deep      only when Taylor asks for more
 ```
 
-It opens the register read only, never reads a Doc, and writes nothing anywhere. The name goes
-through the same exact lookup REED uses; if it says the name is not one person, ask Taylor one
-question naming the candidates.
+It opens the register read only, never reads a Doc, and writes no record anywhere. That is
+enforced, not promised: `.claude/hooks/confine-read-only-agent.py` lets LARK's shell run only
+`prep.py` and the register's read subcommands (owed, history, morning, resolve-date,
+resolve-person, topics, show, needs-input list), as plain commands with forward-slash paths, and
+refuses everything else before it runs. The name goes through the same exact lookup REED uses; if
+it says the name is not one person, ask Taylor one question naming the candidates.
 
 ## What Taylor sees (blueprint P3.7)
 

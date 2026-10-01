@@ -7,7 +7,9 @@ audit rows land in the copy and never in the live register or logs/.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -122,7 +124,8 @@ class ActiveAgentHook(unittest.TestCase):
             (root / ".claude" / "hooks" / "_gate.py").write_text("def broken(:\n", encoding="utf-8")
             done = run_hook(root, "require-active-agent.py", agent_payload("reed", root))
         self.assertEqual(done.returncode, 2)
-        self.assertIn("require-active-agent crashed (SyntaxError", done.stderr)
+        self.assertIn("require-active-agent could not finish checking this call (it could not load its own code, "
+                      "SyntaxError", done.stderr)
 
     def test_no_banner_announces_a_refused_dispatch(self):
         refused = run_hook(self.root, "announce-dispatch.py", agent_payload("milo", self.root))
@@ -155,6 +158,25 @@ class RefusalsInTheTranscript(unittest.TestCase):
         self.assertEqual(ctx.dispatches, [], "require-dispatch would wave the solo Write through")
         self.assertEqual(ctx.refused, ["milo"])
         self.assertEqual([u["refused"] for u in ctx.tool_uses], [True, False])
+
+
+class _Unclosed:
+    """The test's connection, handed to code that closes what it opens, without being closed."""
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def close(self):
+        pass
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self._conn.__enter__()
+
+    def __exit__(self, *exc):
+        return self._conn.__exit__(*exc)
 
 
 class PrivacyReview(unittest.TestCase):
@@ -227,13 +249,33 @@ class PrivacyReview(unittest.TestCase):
             self.review(path, "approve", "nothing to review")
 
     def test_a_stamp_does_not_survive_an_edit_to_the_words(self):
-        _, path = self.propose("Shift swap to cover a medical appointment")
-        self.review(path, "approve", "The shift swap is the work.")
-        edited = json.loads(path.read_bytes())
-        edited["text"] = "Shift swap to cover a medical appointment, details inside"
-        path.write_bytes(json.dumps(edited, indent=2).encode("utf-8"))
-        with self.assertRaises(docs_edit.Refused):
-            docs_edit.check_proposal(self.conn, path, "add-topic", None)
+        # A second, properly indexed PAGE proposal for the SAME item with new words: check_proposal
+        # passes it, so only check_privacy stands between it and the Doc. The old approval was of
+        # the first wording's bytes and must not cover the second.
+        _, first = self.propose("Shift swap to cover a medical appointment")
+        self.review(first, "approve", "The shift swap is the work.")
+        self.assertEqual(self.delivery_refusal(first), "", "the approved words themselves go through")
+        reworded = {**json.loads(first.read_bytes()), "text": "Shift swap to cover a medical appointment, details inside"}
+        second = first.with_name(first.stem + "-v2.json")
+        second.write_bytes((json.dumps(reworded, indent=2) + "\n").encode("utf-8"))
+        with self.conn:
+            self.conn.execute("INSERT INTO proposals (path, sha256, kind, doc_id, item_ref, created_by, created_at)"
+                              " VALUES (?,?,?,?,?,'PAGE',?)",
+                              (second.relative_to(self.root).as_posix(), docs_propose.proposal_sha(reworded),
+                               "add-topic", reworded["doc_id"], reworded["item_ref"], ea_db.now_iso()))
+        self.assertIn("SAGE has not reviewed it", self.delivery_refusal(second))
+
+    def test_the_review_prints_the_words_its_verdict_covers(self):
+        proposal, path = self.propose("Family matter Kaed raised after the meeting")
+        out = io.StringIO()
+        argv = ["privacy_review.py", "--hold", str(path), "--reason", "Personal family context stays private."]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(privacy_review.ea_db, "connect",
+                                                                      return_value=_Unclosed(self.conn)), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(privacy_review.main(), 0)
+        printed = out.getvalue()
+        self.assertIn("This verdict covers exactly these words", printed)
+        self.assertIn("  Family matter Kaed raised after the meeting", printed)
 
     def test_keep_private_withdraws_the_waiting_proposal(self):
         _, path = self.propose("Family matter Kaed raised after the meeting")
@@ -280,7 +322,7 @@ class LarkPrep(unittest.TestCase):
                               text=True, encoding="utf-8", env=env, timeout=60)
 
     def digest(self) -> str:
-        conn = sqlite3.connect(f"file:{self.db.as_posix()}?mode=ro", uri=True)
+        conn = sqlite3.connect(ea_db.read_only_uri(self.db), uri=True)
         try:
             return hashlib.sha256("\n".join(conn.iterdump()).encode("utf-8")).hexdigest()
         finally:

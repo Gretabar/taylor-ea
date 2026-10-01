@@ -8,20 +8,33 @@ a capture the orchestrator did alone. The block's own text already says what it 
 for ("if this turn captured, changed or wrote a record"). This module answers that
 question, so the block fires only when the answer is yes.
 
-FOUR OUTCOMES, decided in this order:
+FIVE OUTCOMES, decided in this order:
 
-    DISPATCHED   the roster is not empty                          the TEAM line
-    WROTE        no dispatch, and a tool use wrote or changed     the SOLO block
-                 something
-    UNVERIFIED   no dispatch and no write found, but part of the  the UNVERIFIED block
-                 turn could not be read
-    READ_ONLY    no dispatch, every tool use read, and all of the one quiet line
-                 turn was read
+    DISPATCHED   an agent demonstrably ran (its Agent call has a  the TEAM line
+                 result that is not a refusal), and nothing in
+                 the turn casts doubt on it
+    PENDING      as above, but an agent's result is not written  the status line's
+                 yet: it is still running                         "<NAME> running"
+    WROTE        no agent could have run, and a tool use wrote   the SOLO block
+                 or changed something
+    UNVERIFIED   the turn could not be read in full, or an       the UNVERIFIED block
+                 agent call ended in a way that proves neither
+                 that it ran nor that it was refused
+    READ_ONLY    no dispatch, every tool use read, and all of   the one quiet line
+                 the turn was read
 
-WROTE outranks UNVERIFIED: one unreadable line next to an add-action is a solo write,
-and the more specific alarm wins. UNVERIFIED outranks READ_ONLY because the quiet line
-is a claim, "nothing written", and a turn that could not be read in full has not
-earned it.
+A DISPATCH NEEDS POSITIVE EVIDENCE. "No refusal found" is not evidence that an agent
+ran: the refusal's row may be truncated, wrapped in a tag, or not written yet. So the
+TEAM line is earned only when the turn reads cleanly; a line that did not parse may
+have been the turn's start (making an earlier turn's dispatch look like this one's) or
+a refusal, so a dispatched turn with one is UNVERIFIED, never TEAM. The roll call
+renders PENDING as UNVERIFIED: at the end of a turn every result should be written.
+
+WROTE outranks UNVERIFIED when no agent could have run: one unreadable line next to an
+add-action is a solo write, and the more specific alarm wins. When an agent might have
+run, a write is not provably solo, so the turn is UNVERIFIED. UNVERIFIED outranks
+READ_ONLY because the quiet line is a claim, "nothing written", and a turn that could
+not be read in full has not earned it.
 
 ONE PARSE. Everything comes from the same _transcript.turn_context() that names the
 roster, so the turn the roll call reports on and the turn whose writes it counts are
@@ -82,6 +95,7 @@ if str(HERE) not in sys.path:
 from _transcript import TranscriptUnreadable, TurnContext, roster, turn_context  # noqa: E402
 
 DISPATCHED = "dispatched"
+PENDING = "pending"
 WROTE = "wrote"
 UNVERIFIED = "unverified"
 READ_ONLY = "read_only"
@@ -216,9 +230,9 @@ def tool_use_writes(use: dict) -> bool | None:
     if name in ("Agent", "Task", "Workflow"):
         if use.get("refused"):
             return False  # refused before it started: nothing ran, so nothing was written
-        # An Agent call reaches here only when the roster could not name the agent
-        # (Task is the tool's older name); a Workflow's agents are never named. Either
-        # way, whatever ran is not visible from here.
+        # A Workflow's agents are never named, and an Agent call that is not known to
+        # have run or been refused proves nothing. Either way, whatever ran is not
+        # visible from here.
         return None
     return False
 
@@ -229,20 +243,38 @@ def _describe(use: dict) -> str:
     return f"{use.get('name')}: {command[:80]}" if isinstance(command, str) else str(use.get("name"))
 
 
+def dispatch_doubts(ctx: TurnContext) -> list[str]:
+    """Everything that stops this turn's dispatches being taken at their word. Empty when nothing does."""
+    reasons = list(ctx.doubts())
+    if ctx.unclear:
+        reasons.append("an agent call ended in an error that is not a recognised refusal ("
+                       + ", ".join(roster(ctx.unclear)) + ")")
+    return reasons
+
+
 def classify(ctx: TurnContext) -> Verdict:
-    """The verdict for one turn, from the TurnContext that also names its roster."""
+    """The verdict for one turn, from the TurnContext that also names its roster.
+
+    The doubts are weighed BEFORE the roster: a dispatch is reported only when the
+    whole turn reads cleanly.
+    """
     names = roster(ctx.dispatches)
-    if names:
+    doubts = dispatch_doubts(ctx)
+    if not doubts and ctx.pending:
+        return Verdict(PENDING, tuple(roster(ctx.pending)), why="still running: " + ", ".join(roster(ctx.pending)))
+    if not doubts and names:
         return Verdict(DISPATCHED, tuple(names))
+    might_have_run = bool(names or ctx.pending or ctx.unclear)
     unreadable = []
     for use in ctx.tool_uses:
         wrote = tool_use_writes(use)
-        if wrote:
+        if wrote and not might_have_run:
             return Verdict(WROTE, why=_describe(use))
         if wrote is None:
             unreadable.append(_describe(use))
-    if ctx.unparsed_lines:
-        unreadable.append(f"{ctx.unparsed_lines} line(s) that did not parse")
+    unreadable.extend(doubts)
+    if might_have_run:
+        unreadable.append("an agent may have run, but the turn does not prove it")
     if unreadable:
         return Verdict(UNVERIFIED, why="could not read: " + "; ".join(unreadable))
     return Verdict(READ_ONLY)

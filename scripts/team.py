@@ -13,10 +13,23 @@ places on purpose, by two different people:
 
 An agent is ON when one of its routes is both approved and accepted:
 
-  its phase      phases.json approves the phase AND build_record has it accepted
+  its phase      phases.json approves the phase, the phase is not deferred, AND
+                 build_record has it accepted. A deferral is lifted explicitly
+                 ("resume Phase 6" sets deferred to false): approving a phase that is
+                 still marked deferred keeps its agents off.
   its deviation  deviations.json has the deviation in effect (approved, or still
                  proposed when it says in_effect_while_proposed) AND build_record has
                  that deviation accepted. LARK's read-only prep runs this way (D-3).
+
+ACCEPTED MEANS A DATE. build_record's `accepted` is the ISO date the acceptance passed
+(YYYY-MM-DD), or null for not yet. "no", "pending", "false" and "TBD" are all truthy
+strings, and reading truthiness switched an agent on with any of them, so any other
+value is malformed and the team is unreadable until it is fixed. `deferred`, when
+present, is true or false, nothing else.
+
+NAMESPACES. A dispatch names one of ours only as a bare name ("milo") or with this
+repo's own prefix ("ea:milo"). Any other prefix ("otherplugin:sage") is somebody
+else's agent and is NOT ON THIS TEAM, however its last segment reads.
 
 ONE ANSWER, MANY READERS. The dispatch gate (require-active-agent.py), the announce
 banner, the doctor, the contract validator and the orchestrator's relay
@@ -42,8 +55,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(os.environ.get("EA_ROOT") or Path(__file__).resolve().parents[1])
@@ -122,9 +137,36 @@ class AgentStatus:
         return self.state == ACTIVE
 
 
+PLUGIN = "ea"
+
+
 def bare(subagent_type: str) -> str:
-    """'ea:milo' or 'milo' -> 'MILO'."""
-    return (subagent_type or "").split(":")[-1].strip().upper()
+    """'milo' or 'ea:milo' -> 'MILO'. Any other prefix -> '': somebody else's agent, never ours.
+
+    The same rule as .claude/hooks/_gate.agent_name(); the guardrail self-test holds
+    the two to one table of inputs.
+    """
+    text = (subagent_type or "").strip()
+    prefix, sep, name = text.partition(":")
+    if sep:
+        if prefix.strip().lower() != PLUGIN or ":" in name:
+            return ""
+        text = name
+    return text.strip().upper()
+
+
+_ISO_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def is_iso_date(value) -> bool:
+    """True for a real calendar date written YYYY-MM-DD, and nothing else."""
+    if not isinstance(value, str) or not _ISO_DATE.fullmatch(value):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
 
 
 class Team:
@@ -158,6 +200,9 @@ class Team:
                 raise TeamUnreadable(f"roster agent {name or '?'} has no name or no lane")
             if name in found:
                 raise TeamUnreadable(f"roster-agents.json lists {name} twice")
+            for flag in ("delivery", "privacy", "read_only"):
+                if flag in agent and not isinstance(agent[flag], bool):
+                    raise TeamUnreadable(f"{name} has {flag} {agent[flag]!r}; it must be true or false")
             if phase is None:
                 if not agent.get("via"):
                     raise TeamUnreadable(f"{name} has no phase and no deviation that could switch it on")
@@ -171,7 +216,13 @@ class Team:
         record = roster.get("build_record", {})
         if not isinstance(record, dict):
             raise TeamUnreadable("roster-agents.json build_record is not an object")
-        return {key: value for key, value in record.items() if isinstance(value, dict)}
+        builds = {key: value for key, value in record.items() if isinstance(value, dict)}
+        for key, value in builds.items():
+            accepted = value.get("accepted")
+            if accepted is not None and not is_iso_date(accepted):
+                raise TeamUnreadable(f"build_record {key!r} has accepted {accepted!r}; it must be the date the "
+                                     f"acceptance passed (YYYY-MM-DD), or null for not yet")
+        return builds
 
     @staticmethod
     def _phases(phases: dict) -> dict[str, dict]:
@@ -182,16 +233,24 @@ class Team:
             entry = table.get(key)
             if not isinstance(entry, dict) or not isinstance(entry.get("approved"), bool):
                 raise TeamUnreadable(f"phases.json has no true-or-false `approved` for phase {key}")
+            if "deferred" in entry and not isinstance(entry["deferred"], bool):
+                raise TeamUnreadable(f"phases.json phase {key} has deferred {entry['deferred']!r}; "
+                                     f"it must be true or false")
         return table
 
     # -- the two halves ---------------------------------------------------------
 
     def accepted(self, unit: str) -> bool:
-        """Built and accepted on the build machine: a date in build_record."""
-        return bool((self.builds.get(unit) or {}).get("accepted"))
+        """Built and accepted on the build machine: an ISO date in build_record, never just a truthy value."""
+        return is_iso_date((self.builds.get(unit) or {}).get("accepted"))
+
+    def phase_deferred(self, phase: int | None) -> bool:
+        return phase is not None and self.phases[str(phase)].get("deferred") is True
 
     def phase_approved(self, phase: int | None) -> bool:
-        return phase is not None and self.phases[str(phase)]["approved"] is True
+        """Taylor approved the phase AND it is not deferred: approval alone does not lift a deferral."""
+        return (phase is not None and self.phases[str(phase)]["approved"] is True
+                and not self.phase_deferred(phase))
 
     def deviation_in_effect(self, key: str | None) -> bool:
         entry = self.deviations.get(key) if key else None
@@ -214,12 +273,12 @@ class Team:
         phase = agent.get("phase")
         if phase is None:
             return outside_architecture(agent["name"], agent["lane"])
-        if self.phases[str(phase)].get("deferred") is True:
+        if self.phase_deferred(phase):
             return deferred(agent["name"], agent["lane"], phase)
         return not_switched_on(agent["name"], agent["lane"], phase)
 
     def status(self, name: str) -> AgentStatus | None:
-        """The agent's standing now, or None when it is not on the roster at all."""
+        """The agent's standing now, or None when it is not on the roster (or names another plugin's agent)."""
         agent = self.agents.get(bare(name))
         if agent is None:
             return None
@@ -239,7 +298,7 @@ class Team:
             return standing(APPROVED_NOT_BUILT, phase_unit, approved_not_built(key, lane, phase))
         if phase is None:
             return standing(OUTSIDE, "", outside_architecture(key, lane))
-        if self.phases[str(phase)].get("deferred") is True:
+        if self.phase_deferred(phase):
             return standing(DEFERRED, "", deferred(key, lane, phase))
         return standing(NOT_SWITCHED_ON, "", not_switched_on(key, lane, phase))
 
@@ -264,8 +323,8 @@ def dispatch_verdict(team: Team, subagent_type: str) -> tuple[bool, str, tuple[s
 def _read(path: Path) -> dict:
     try:
         data = json.loads(path.read_bytes().decode("utf-8"))
-    except (OSError, ValueError) as exc:
-        raise TeamUnreadable(f"{path}: {exc}") from exc
+    except (OSError, ValueError, RecursionError) as exc:
+        raise TeamUnreadable(f"{path}: {exc.__class__.__name__}: {exc}") from exc
     if not isinstance(data, dict):
         raise TeamUnreadable(f"{path}: top level is not an object")
     return data

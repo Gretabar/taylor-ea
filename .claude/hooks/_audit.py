@@ -53,6 +53,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _clean(value):
+    """Text both sinks can store. A lone UTF-16 surrogate (a refused command can carry one)
+    cannot be encoded as UTF-8; left in, it fails both sinks and the row is lost to the
+    one character, so it is replaced rather than allowed to cost the record."""
+    if not isinstance(value, str):
+        return value
+    return value.encode("utf-8", errors="replace").decode("utf-8")
+
+
 def _mirror(row: dict) -> str:
     """Append one JSON line to logs/audit-YYYY-MM.jsonl. Returns "" on success."""
     try:
@@ -70,13 +79,21 @@ def _mirror(row: dict) -> str:
 
 
 def _table(row: dict) -> str:
-    """Insert one row into the audit table. Returns "" on success."""
+    """Insert one row into the audit table. Returns "" on success.
+
+    A register that does not exist yet is left alone. Opening it here would create
+    state/ea.db as an empty file with no tables: the insert fails anyway, and the empty
+    file then reads as a register that exists, so prep.py and the doctor would meet a
+    database nobody set up. The mirror still records the row.
+    """
     try:
         scripts = str(REPO_ROOT / "scripts")
         if scripts not in sys.path:
             sys.path.insert(0, scripts)
         import ea_db  # noqa: PLC0415  -- local by design: see the module header
 
+        if not Path(ea_db.DB_PATH).exists():
+            return f"sqlite: the register {ea_db.DB_PATH} does not exist yet"
         conn = ea_db.connect()
         try:
             with conn:
@@ -126,17 +143,17 @@ def record(
     """Write one gated-decision row to both sinks. Never raises, never blocks."""
     row = {
         "ts": _now(),
-        "session_id": session_id or os.environ.get("CLAUDE_SESSION_ID", ""),
-        "agent": agent,
-        "hook": hook,
-        "tool": tool,
-        "decision": decision,
-        "rule_id": rule_id,
-        "target": target,
-        "payload_sha256": payload_sha256,
+        "session_id": _clean(session_id or os.environ.get("CLAUDE_SESSION_ID", "")),
+        "agent": _clean(agent),
+        "hook": _clean(hook),
+        "tool": _clean(tool),
+        "decision": _clean(decision),
+        "rule_id": _clean(rule_id),
+        "target": _clean(target),
+        "payload_sha256": _clean(payload_sha256),
         "record_count": record_count,
         "approval_id": approval_id,
-        "detail": detail,
+        "detail": _clean(detail),
     }
 
     mirror_error = _mirror(row)

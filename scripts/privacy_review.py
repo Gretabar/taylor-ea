@@ -9,7 +9,10 @@ THE VERDICT IS BOUND TO THE BYTES. The stamp carries the proposal's sha256 (the 
 canonical hash WREN's delivery checks), so approving one wording does not approve a
 reworded one, and a proposal edited after the stamp is refused for both reasons. The
 newest stamp for a sha256 is the one that counts; a hold followed by an approval
-(Taylor explained why the line belongs in the Doc) is a decision with a history.
+(Taylor explained why the line belongs in the Doc) is a decision with a history. The
+script prints the exact words the verdict covers, and docs_edit.py reads the newest
+verdict again immediately before it writes, so a hold recorded while WREN is mid-write
+still stops the words reaching the Doc.
 
 ONLY SAGE RUNS THIS. .claude/hooks/require-privacy-agent.py refuses it from every
 other caller, the orchestrator included, using Claude Code's own agent fields. So the
@@ -103,7 +106,8 @@ def record(conn, proposal: dict, digest: str, rel: str, verdict: str, reason: st
     _audit.record(hook="privacy_review", tool="privacy_review", agent=REVIEWER, decision=verdict,
                   rule_id=category, target=rel, payload_sha256=digest, detail=reason[:300])
     return {"verdict": verdict, "category": category, "reason": reason, "proposal": rel,
-            "item_ref": proposal.get("item_ref"), "kind": proposal.get("kind"), "doc_id": proposal.get("doc_id")}
+            "item_ref": proposal.get("item_ref"), "kind": proposal.get("kind"), "doc_id": proposal.get("doc_id"),
+            "sha256": digest, "words": privacy_screen.doc_bound_texts(proposal)}
 
 
 def main() -> int:
@@ -129,6 +133,11 @@ def main() -> int:
     finally:
         conn.close()
     print(f"REVIEWED: {result['verdict']} {result['item_ref']} ({result['category']}): {result['reason']}")
+    # The verdict is bound to these bytes, not to the item: show exactly what it covers.
+    print(f"This verdict covers exactly these words (sha256 {result['sha256'][:16]}); "
+          f"any other wording needs a new review:")
+    for words in result["words"]:
+        print(f"  {words}")
     if verdict == "approve":
         print(f"WREN may deliver it: python scripts/docs_edit.py {result['kind']} --doc {result['doc_id']} "
               f"--proposal {result['proposal']}")

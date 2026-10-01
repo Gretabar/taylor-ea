@@ -386,12 +386,21 @@ def console_utf8() -> None:
             pass  # swallow: a stream that cannot be reconfigured (a test capture) needs no fix
 
 
+def read_only_uri(path: Path | str) -> str:
+    """A SQLite URI that opens `path` read-only.
+
+    Path.as_uri() percent-encodes the path. Pasted into an f-string instead, a '#' in a
+    folder name starts the URI's fragment: SQLite then opened a different, shorter path
+    READ-WRITE, creating it, and mode=ro was never seen.
+    """
+    return Path(path).resolve().as_uri() + "?mode=ro"
+
+
 def connect(path: Path | str | None = None, *, read_only: bool = False) -> sqlite3.Connection:
     """Open the database with the pragmas this system depends on."""
     target = Path(path or DB_PATH)
     if read_only:
-        uri = f"file:{target.as_posix()}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=5.0)
+        conn = sqlite3.connect(read_only_uri(target), uri=True, timeout=5.0)
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(target), timeout=30.0)

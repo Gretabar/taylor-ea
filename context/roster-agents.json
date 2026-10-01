@@ -13,8 +13,10 @@
     "that can switch the agent on by itself (docs/DEVIATIONS.md).",
     "",
     "`delivery: true` marks the one agent allowed to run scripts/docs_edit.py and `privacy: true`",
-    "the one allowed to run scripts/privacy_review.py. The hooks that enforce them hardcode the",
-    "same names on purpose, and the guardrail self-test checks the two still agree."
+    "the one allowed to run scripts/privacy_review.py. `read_only: true` marks an agent whose shell",
+    "is confined to prep.py and the register's read subcommands (confine-read-only-agent.py). The",
+    "hooks that enforce them hardcode the same names on purpose, and the guardrail self-test",
+    "checks the two still agree."
   ],
   "orchestrator": {"command": "NAME", "phase": 1, "lane": "dispatch, reality-checker, deviation memos, Needs Your Input"},
   "agents": [
@@ -29,6 +31,7 @@
     {"name": "SAGE", "phase": 1, "model": "opus", "lane": "privacy and governance", "privacy": true,
      "specialty": "Reviews the proposals the privacy screen flags; approves or holds with privacy_review.py; G1 to G3 judgement"},
     {"name": "LARK", "phase": 3, "model": "sonnet", "lane": "daily brief and meeting prep", "via": "D-3",
+     "read_only": true,
      "specialty": "Read-only prep for a 1:1 now (D-3); the daily brief is Phase 3 and fuller prep Phase 7"},
     {"name": "MILO", "phase": 2, "model": "opus", "lane": "meetings and transcripts",
      "specialty": "Transcripts, 1:1 processing, the weekly store meeting, next-meeting creation"},

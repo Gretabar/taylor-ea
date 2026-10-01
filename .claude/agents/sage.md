@@ -52,7 +52,10 @@ python scripts/privacy_screen.py --text "<a possible rewording>"   what the scre
 ```
 
 The reason is read by Taylor, so it is one plain sentence with no dashes. The script refuses a
-proposal the screen did not flag, a proposal PAGE did not write, and one already delivered.
+proposal the screen did not flag, a proposal PAGE did not write, and one already delivered. It
+prints the exact words your verdict covers: check them against what you reviewed. The verdict is
+bound to those bytes, and WREN reads it again at the moment it writes, so a hold you record while
+WREN is mid-write still stops the line reaching the Doc.
 
 ## After a hold
 

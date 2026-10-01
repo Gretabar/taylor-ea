@@ -872,11 +872,33 @@ def register_digest() -> str:
     """The register's whole logical content, read through a read-only connection."""
     import sqlite3  # noqa: PLC0415
 
-    conn = sqlite3.connect(f"file:{ea_db.FIXTURE_DB.as_posix()}?mode=ro", uri=True)
+    conn = sqlite3.connect(ea_db.read_only_uri(ea_db.FIXTURE_DB), uri=True)
     try:
         return hashlib.sha256("\n".join(conn.iterdump()).encode("utf-8")).hexdigest()
     finally:
         conn.close()
+
+
+def register_files() -> dict[str, tuple[str, int] | None]:
+    """(sha256, size) of the register file and its -wal and -shm, or None for a file that is absent.
+
+    The logical digest above cannot see a write to the file itself, nor tell SQLite's own
+    WAL index files from data, so LARK's leg compares these too.
+    """
+    out: dict[str, tuple[str, int] | None] = {}
+    for suffix in ("", "-wal", "-shm"):
+        path = Path(str(ea_db.FIXTURE_DB) + suffix)
+        out[suffix or "db"] = ((hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_size)
+                               if path.exists() else None)
+    return out
+
+
+def files_unchanged(before: dict, after: dict) -> bool:
+    """No data written: the database's bytes are identical, and the -wal is unchanged or was created
+    empty. The -shm is SQLite's shared-memory index (readers mark it), reported but not compared."""
+    wal_ok = after["-wal"] == before["-wal"] or (before["-wal"] is None and after["-wal"] is not None
+                                                   and after["-wal"][1] == 0)
+    return before["db"] is not None and after["db"] == before["db"] and wal_ok
 
 
 def lark_prep(ev: Evidence) -> dict:
@@ -899,12 +921,14 @@ def lark_prep(ev: Evidence) -> dict:
                                        " WHERE o.key = 'kaed' AND a.status IN ('open', 'snoozed')")]
 
     db_before = register_digest()
+    files_before = register_files()
     service = docs_read.docs_service()
     doc_before = docs_read.fetch(service, doc["doc_id"])
     brief = sh("scripts/prep.py", "--person", "Kaed")
     ev.cmd("prep.py --person Kaed   (\"prep me for Kaed\")", brief)
     deep = sh("scripts/prep.py", "--person", "kaed", "--deep")
     ev.cmd("prep.py --person kaed --deep   (\"what does Kaed owe me?\")", deep)
+    files_after = register_files()
     db_after = register_digest()
     doc_after = docs_read.fetch(service, doc["doc_id"])
     smap = json.loads(doc["section_map_json"])
@@ -913,6 +937,14 @@ def lark_prep(ev: Evidence) -> dict:
     ev.add(f"- expected from the register: Taylor owes Kaed `{you_owe}`, Taylor must answer `{to_answer}`, "
            f"Kaed owes Taylor `{they_owe}`")
     ev.add(f"- register sha256 (logical dump) before `{db_before[:16]}...`, after `{db_after[:16]}...`")
+
+    def shown(entry) -> str:
+        return "absent" if entry is None else f"{entry[0][:12]}, {entry[1]} bytes"
+
+    for name in ("db", "-wal", "-shm"):
+        ev.add(f"- register file `{name}` before: {shown(files_before[name])}; after: {shown(files_after[name])}")
+    ev.add(f"- database bytes identical and -wal unchanged or created empty: {files_unchanged(files_before, files_after)} "
+           f"(SQLite's -shm index is reported, not compared: readers mark it)")
     ev.add(f"- Kaed's Doc revision before `{str(doc_before.get('revisionId'))[:20]}...`, after "
            f"`{str(doc_after.get('revisionId'))[:20]}...`; content identical: {doc_same}")
     # The ref that leads each listed line. A question may quote Kaed's action ref inside its
@@ -920,11 +952,13 @@ def lark_prep(ev: Evidence) -> dict:
     def listed(run: Run) -> set[str]:
         return {line.split()[0] for line in run.out.splitlines() if line.startswith("  ") and line.split()}
 
-    ok = (brief.code == 0 and deep.code == 0 and db_before == db_after and doc_same and bool(you_owe)
+    ok = (brief.code == 0 and deep.code == 0 and db_before == db_after and files_unchanged(files_before, files_after)
+          and doc_same and bool(you_owe)
           and bool(to_answer) and bool(they_owe) and doc["url"] in brief.out
           and set(you_owe + to_answer) <= listed(brief) and not set(they_owe) & listed(brief)
           and set(they_owe) <= listed(deep))
-    return {"ok": ok, "summary": f"read only (register and Kaed's Doc unchanged); the brief lists what Taylor owes "
+    return {"ok": ok, "summary": f"no data written (the register's bytes, -wal and contents, and Kaed's Doc, unchanged); "
+                                 f"the brief lists what Taylor owes "
                                  f"Kaed ({', '.join(you_owe)}) and must answer ({', '.join(to_answer)}) with the Doc "
                                  f"link, and leaves what Kaed owes ({', '.join(they_owe)}) to --deep"}
 

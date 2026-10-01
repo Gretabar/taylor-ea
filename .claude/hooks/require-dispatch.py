@@ -12,8 +12,20 @@ with worse content. Repo code, scripts, hooks, context and logs stay writable so
 maintenance still flows, and a dispatched agent's own write passes for free because
 the dispatch it would be proving already happened.
 
+A DISPATCH IS PROVED, NOT ASSUMED. The write passes when an agent of this turn
+demonstrably ran: its Agent call came back with a result that is not a refusal
+(_transcript.py, change 5). "No refusal found" is not proof. So the write is refused,
+as UNVERIFIABLE rather than as solo, when the only dispatch has no result yet, when its
+result is an error that is not a recognised refusal (a refusal wrapped in a
+<tool_use_error> tag), when a line of the turn did not parse (it may have been the
+turn's start, so an earlier turn's dispatch would read as this one's), or when the
+turn's start was not found at all. The user's "solo ok" still opens it, read only from
+a turn whose every line parsed: a truncated row must not let an earlier turn's
+"solo ok" stand in for this one's.
+
 Fails CLOSED on an unreadable transcript, same reasoning as _lib.sh's
-hook_die_unparseable: a gate that cannot see its input has not checked anything.
+hook_die_unparseable: a gate that cannot see its input has not checked anything. Any
+crash of this hook is a refusal too (_failsafe.run_gate).
 """
 
 from __future__ import annotations
@@ -26,20 +38,29 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import _audit  # noqa: E402
-from _gate import (  # noqa: E402
-    PayloadUnreadable,
-    block,
-    deny_environment,
-    first_field,
-    read_payload,
-    repo_relative,
-)
-from _transcript import (  # noqa: E402
-    TranscriptUnreadable,
-    is_subagent_transcript,
-    turn_context,
-)
+from _failsafe import run_gate  # noqa: E402  -- standard library only, so it loads when the rest cannot
+
+# A failed import must end in a refusal, never in Python's own exit 1, which lets the call through.
+try:
+    import _audit  # noqa: E402
+    from _gate import (  # noqa: E402
+        PayloadUnreadable,
+        block,
+        deny_environment,
+        first_field,
+        read_payload,
+        repo_relative,
+    )
+    from _transcript import (  # noqa: E402
+        TranscriptUnreadable,
+        is_subagent_transcript,
+        roster,
+        turn_context,
+    )
+except BaseException as _exc:  # noqa: BLE001  -- SystemExit and KeyboardInterrupt at import refuse too
+    _IMPORT_ERROR: BaseException | None = _exc  # swallow: run_gate refuses every call, naming this error
+else:
+    _IMPORT_ERROR = None
 
 HOOK = "require-dispatch"
 OVERRIDE = "solo ok"
@@ -92,6 +113,44 @@ def deny_solo(rel: str) -> int:
     ])
 
 
+def deny_unverifiable(rel: str, why: str) -> int:
+    return block([
+        "BLOCKED: this turn does not prove an agent ran, so this is treated as a solo write.",
+        "",
+        f"  file:   {rel}",
+        f"  reason: {why}",
+        f"  owner:  {owner_for(rel)}",
+        "",
+        "A write here passes when an agent of this turn demonstrably ran: its Agent",
+        "call came back with a result that is not a refusal. Dispatch the owner and",
+        "let it write the file; an agent's own write always passes.",
+        "",
+        f'If this genuinely is a one-off that needs no agent, the user says "{OVERRIDE}"',
+        "and the write goes through. Do not add that phrase yourself.",
+    ])
+
+
+def decide(ctx, transcript_path) -> tuple[bool, str, str]:
+    """(allowed, rule_id, why). Pure, so the guardrail self-test can drive it."""
+    if is_subagent_transcript(transcript_path, ctx):
+        return True, "subagent-transcript", ""
+    doubts = ctx.doubts()
+    if ctx.dispatches and not doubts:
+        return True, "dispatched", ""
+    if not ctx.unparsed_lines and OVERRIDE in SYSTEM_REMINDER.sub(" ", ctx.last_user_text).lower():
+        return True, "override", ""
+    reasons = list(doubts)
+    if ctx.pending:
+        reasons.append("no result yet for " + ", ".join(roster(ctx.pending)))
+    if ctx.unclear:
+        reasons.append("an error that is not a recognised refusal for " + ", ".join(roster(ctx.unclear)))
+    if ctx.dispatches and doubts:
+        reasons.append("so the dispatch of " + ", ".join(roster(ctx.dispatches)) + " cannot be placed in this turn")
+    if reasons:
+        return False, "dispatch-unverifiable", "; ".join(reasons)
+    return False, "solo-write", ""
+
+
 def main() -> int:
     try:
         payload = read_payload()
@@ -109,28 +168,22 @@ def main() -> int:
         return 0
 
     transcript_path = payload.get("transcript_path")
+    session = str(payload.get("session_id") or "")
     try:
         ctx = turn_context(transcript_path)
     except TranscriptUnreadable as exc:
-        _audit.record(hook=HOOK, decision="deny_unverifiable", target=rel, detail=str(exc))
+        _audit.record(hook=HOOK, decision="deny_unverifiable", target=rel, detail=str(exc), session_id=session)
         return deny_environment(HOOK, "session transcript", str(exc))
 
-    if is_subagent_transcript(transcript_path, ctx):
+    allowed, rule_id, why = decide(ctx, transcript_path)
+    if allowed:
+        if rule_id == "override":
+            _audit.record(hook=HOOK, decision="allow", rule_id="override", target=rel, session_id=session)
         return 0
-    if ctx.dispatches:
-        return 0
-
-    typed = SYSTEM_REMINDER.sub(" ", ctx.last_user_text).lower()
-    if OVERRIDE in typed:
-        _audit.record(hook=HOOK, decision="allow", rule_id="override", target=rel,
-                      session_id=str(payload.get("session_id") or ""))
-        return 0
-
-    _audit.record(hook=HOOK, tool=str(payload.get("tool_name") or ""), decision="deny",
-                  rule_id="solo-write", target=rel,
-                  session_id=str(payload.get("session_id") or ""))
-    return deny_solo(rel)
+    _audit.record(hook=HOOK, tool=str(payload.get("tool_name") or ""), decision="deny", rule_id=rule_id,
+                  target=rel, detail=why[:300], session_id=session)
+    return deny_solo(rel) if rule_id == "solo-write" else deny_unverifiable(rel, why)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_gate(HOOK, main, _IMPORT_ERROR))

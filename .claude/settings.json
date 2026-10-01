@@ -10,7 +10,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-architecture.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-architecture.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: protect-architecture could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           }
         ]
       },
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/no-cloud.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/no-cloud.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: no-cloud could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           }
         ]
       },
@@ -28,11 +28,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-delivery-agent.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-delivery-agent.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: require-delivery-agent could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           },
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-privacy-agent.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-privacy-agent.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: require-privacy-agent could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           }
         ]
       },
@@ -41,7 +41,16 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-active-agent.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-active-agent.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: require-active-agent could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit|WebFetch|WebSearch|mcp__.*|Agent|Task|Workflow",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/confine-read-only-agent.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: confine-read-only-agent could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           }
         ]
       },
@@ -50,15 +59,15 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/validate_content_rules.py\" --stdin-payload"
+            "command": "python \"$CLAUDE_PROJECT_DIR/scripts/validate_content_rules.py\" --stdin-payload; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: validate_content_rules could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           },
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/classify-and-place.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/classify-and-place.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: classify-and-place could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           },
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-dispatch.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-dispatch.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: require-dispatch could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           }
         ]
       },
@@ -67,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-approval.py\""
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-approval.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: require-approval could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           }
         ]
       },

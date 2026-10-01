@@ -33,6 +33,15 @@ So the rules live here:
                       grant anything: on the main thread its transcript fallback
                       names the last agent DISPATCHED, which is not the caller.
 
+  agent_name()        the namespace rule: a bare roster name or this repo's `ea:`
+                      prefix names one of ours; any other prefix names nobody here.
+
+  block()             never fails to refuse: the message is encoded with
+                      errors="replace", because a refusal that raises while
+                      printing exits 1, and exit 1 lets the call through. Every gate
+                      also ends in _failsafe.run_gate(), which turns any crash into
+                      a refusal.
+
 WHAT CHANGED FROM PIPER. Env vars are EA_*; the roster is read from
 context/roster-agents.json so this file, the roll call and the contract validator
 cannot disagree about who exists; caller_agent() is new, because transcript
@@ -56,21 +65,24 @@ _ENV_ROOT = os.environ.get("EA_ROOT") or os.environ.get("CLAUDE_PROJECT_DIR")
 REPO_ROOT = Path(_ENV_ROOT) if _ENV_ROOT else HERE.parents[1]
 
 
-def _load_roster() -> tuple[str, ...]:
-    """Agent names from context/roster-agents.json, or () when unreadable.
+def _load_roster() -> tuple[tuple[str, ...], frozenset[str]]:
+    """(agent names, the agents marked read_only) from context/roster-agents.json, or empty when unreadable.
 
     An empty roster is the fail-closed answer: every gate that asks "is this caller
-    one of ours" then answers no.
+    one of ours" then answers no. RecursionError is caught with the rest: json.loads
+    raises it, not ValueError, on a file nested a few thousand levels deep.
     """
     try:
         data = json.loads((REPO_ROOT / "context" / "roster-agents.json")
                           .read_bytes().decode("utf-8", errors="replace"))
-        return tuple(str(a["name"]).upper() for a in data.get("agents") or [] if a.get("name"))
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return ()  # swallow: an unreadable roster resolves every caller to None, which every gate denies
+        agents = [a for a in data.get("agents") or [] if a.get("name")]
+        return (tuple(str(a["name"]).upper() for a in agents),
+                frozenset(str(a["name"]).upper() for a in agents if a.get("read_only") is True))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
+        return (), frozenset()  # swallow: an unreadable roster resolves every caller to None, which every gate denies
 
 
-ROSTER = _load_roster()
+ROSTER, ROSTER_READ_ONLY = _load_roster()
 
 
 class PayloadUnreadable(Exception):
@@ -96,16 +108,22 @@ def read_payload() -> dict:
         raise PayloadUnreadable("stdin was empty")
     try:
         payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise PayloadUnreadable(f"stdin was not JSON: {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise PayloadUnreadable(f"stdin was not JSON this hook can read ({exc.__class__.__name__}: {exc})") from exc
     if not isinstance(payload, dict):
         raise PayloadUnreadable(f"payload was {type(payload).__name__}, not an object")
     return payload
 
 
 def block(lines: list[str]) -> int:
-    """Write a deny message to stderr and return the blocking exit code."""
-    sys.stderr.buffer.write(("\n".join(lines) + "\n").encode("utf-8"))
+    """Write a deny message to stderr and return the blocking exit code.
+
+    errors="replace": a refusal quotes the command it refuses, and a command can carry
+    a lone UTF-16 surrogate (a JSON "\\ud83d" escape). Encoded strictly, that raised on
+    the DENY path, the hook exited 1, and Claude Code ran the command it was refusing.
+    """
+    sys.stderr.buffer.write(("\n".join(lines) + "\n").encode("utf-8", errors="replace"))
+    sys.stderr.flush()
     return 2
 
 
@@ -133,8 +151,8 @@ def load_context(name: str) -> dict:
         raise ContextUnreadable(f"{path}: {exc}") from exc
     try:
         data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ContextUnreadable(f"{path}: {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise ContextUnreadable(f"{path}: {exc.__class__.__name__}: {exc}") from exc
     if not isinstance(data, dict):
         raise ContextUnreadable(f"{path}: top level is not an object")
     return data
@@ -203,44 +221,38 @@ def is_build_machine() -> bool:
     return first[0].strip().lower() == socket.gethostname().strip().lower()
 
 
-_INTERPRETER = re.compile(
-    r"(?:^|[\s&;|(`'\"])(?:[\w.:~\\/-]*[\\/])?(?:python3?|pythonw|py)(?:\.exe)?(?=$|[\s'\"`;|)])",
-    re.I,
-)
-_SEPARATORS = re.compile(r"(?:\|\||&&|;|\||\n)")
-
-
 def invokes_script(command: str, stem: str) -> bool:
     """True when this shell command would run scripts/<stem>.py.
 
-    Moved here from require-delivery-agent.py when a second gate (the SAGE-only gate
-    on privacy_review.py) needed the identical rule; two copies of one parser drift
-    apart, and a gate that drifts from its sibling is a side door.
-
-    A command that mentions the stem AND starts a Python interpreter anywhere in it
-    (`python scripts/x.py`, `py -3 ...`, `powershell -Command "python ..."`,
-    `python -c "import x"`, or the source piped into `python -`), or that executes
-    x.py directly. Reading the file (cat, grep, git diff, Get-Content) starts no
-    interpreter and passes. Crude on purpose: a precise parser of two shells'
-    grammar would be a larger attack surface than the gate, and the cost of the
-    crudeness is a rare false positive (`grep py scripts/x.py`).
+    Shared by the WREN-only and SAGE-only gates; the rule itself is
+    _shell.runs_script(), the one parser every shell gate uses. It matches the script
+    (privacy_review.py, `import privacy_review`, `-m privacy_review`), never a longer
+    name that contains it (the privacy_reviews table), through every launcher _shell
+    unwraps. Imported when first asked, so a broken parser refuses only the gates that
+    need it, and a gate that never asks does not load it.
     """
-    if not command or not re.search(re.escape(stem), command, re.I):
-        return False
-    if _INTERPRETER.search(command):
-        return True
-    for fragment in _SEPARATORS.split(command):
-        tokens = fragment.strip().split()
-        while tokens and tokens[0] in ("&", ".", "call", "start"):
-            tokens = tokens[1:]
-        if tokens and tokens[0].strip("'\"").replace("\\", "/").lower().endswith(f"{stem.lower()}.py"):
-            return True
-    return False
+    from _shell import runs_script  # noqa: PLC0415
+
+    return runs_script(command, stem)
 
 
-def _bare(name: str) -> str:
-    """'ea:wren' or 'wren' -> 'WREN'."""
-    return (name or "").split(":")[-1].strip().upper()
+PLUGIN = "ea"
+
+
+def agent_name(raw: str) -> str | None:
+    """'wren' or 'ea:wren' -> 'WREN'. Any other prefix -> None: it names somebody else's agent.
+
+    Keeping only the last ':' segment let `otherplugin:sage` stand for SAGE and an
+    `x:wren` subagent pass the WREN-only gate. Only a bare name or this repo's own
+    `ea:` prefix can name one of ours; scripts/team.py applies the same rule.
+    """
+    text = str(raw or "").strip()
+    prefix, sep, name = text.partition(":")
+    if sep:
+        if prefix.strip().lower() != PLUGIN or ":" in name:
+            return None
+        text = name
+    return text.strip().upper() or None
 
 
 def caller_agent(payload: dict) -> str | None:
@@ -257,7 +269,7 @@ def caller_agent(payload: dict) -> str | None:
     agent_id = payload.get("agent_id")
     agent_type = payload.get("agent_type")
     if agent_id:
-        name = _bare(str(agent_type or ""))
+        name = agent_name(str(agent_type or ""))
         return name if name in ROSTER else None
     # No agent_id: the hook fired on the main thread. agent_type alone can be
     # present when the whole session runs as an agent (`--agent`); that is not a
@@ -283,7 +295,7 @@ def resolve_agent(payload: dict) -> str | None:
     if caller not in (None, "MAIN"):
         return caller
 
-    pinned = _bare(os.environ.get("EA_AGENT") or "")
+    pinned = agent_name(os.environ.get("EA_AGENT") or "")
     if pinned in ROSTER:
         return pinned
 
@@ -305,7 +317,7 @@ def resolve_agent(payload: dict) -> str | None:
     except (OSError, TypeError, ValueError):
         return None
     for match in reversed(_SUBAGENT_TYPE.findall(raw)):
-        name = _bare(match)
+        name = agent_name(match)
         if name in ROSTER:
             return name
     return None

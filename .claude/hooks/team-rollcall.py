@@ -132,7 +132,7 @@ def change_log_banner() -> str:
     if not os.path.exists(db):
         return ""
     try:
-        conn = sqlite3.connect(f"file:{db.replace(os.sep, '/')}?mode=ro", uri=True, timeout=1.0)
+        conn = sqlite3.connect(_health.read_only_uri(db), uri=True, timeout=1.0)
         try:
             row = conn.execute(
                 "SELECT ts, target FROM audit WHERE hook = 'protect-architecture'"
@@ -141,7 +141,7 @@ def change_log_banner() -> str:
             ).fetchone()
         finally:
             conn.close()
-    except sqlite3.Error:
+    except (sqlite3.Error, OSError, ValueError):
         return ""  # swallow: the AUDIT-DEGRADED banner owns audit failures
     if not row:
         return ""

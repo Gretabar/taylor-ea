@@ -14,12 +14,18 @@ payload, read by _gate.caller_agent), exactly as for WREN:
     agent_id present, agent_type unreadable  DENY  (None is a refusal, never a pass)
     no agent_id                              DENY  (the main thread is the orchestrator)
 
-WHAT COUNTS AS RUNNING IT is _gate.invokes_script(), shared with the WREN-only gate:
-the script named with an interpreter anywhere in the command, executed directly, or
-imported inline. Reading it (cat, grep, Get-Content) passes. Matched on PowerShell
-as well as Bash, because on Windows PowerShell is the primary shell.
+WHAT COUNTS AS RUNNING IT is _gate.invokes_script(), which is _shell.runs_script(),
+shared with the WREN-only gate: the SCRIPT, run through any launcher that parser
+unwraps, executed directly, or imported or run as a module inline. Never a longer name
+that contains it: HUGO reading the privacy_reviews table runs no review, and passes
+with no audit row, because only a call that runs the reviewer is recorded at all.
+Reading the script (cat, grep, Get-Content) passes. Matched on PowerShell as well as
+Bash, because on Windows PowerShell is the primary shell.
 
-Fails CLOSED on an unreadable payload.
+FAILS CLOSED, all the way: an unreadable payload is a refusal, and so is any crash of
+this hook, including an import that fails (_failsafe.run_gate). Before that, a lone
+UTF-16 surrogate in a refused command made the refusal itself raise, the hook exited 1,
+and the command ran and stamped reviewer SAGE.
 """
 
 from __future__ import annotations
@@ -31,16 +37,24 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import _audit  # noqa: E402
-from _gate import (  # noqa: E402
-    PayloadUnreadable,
-    block,
-    caller_agent,
-    deny_environment,
-    first_field,
-    invokes_script,
-    read_payload,
-)
+from _failsafe import run_gate  # noqa: E402  -- standard library only, so it loads when the rest cannot
+
+# A failed import must end in a refusal, never in Python's own exit 1, which lets the call through.
+try:
+    import _audit  # noqa: E402
+    from _gate import (  # noqa: E402
+        PayloadUnreadable,
+        block,
+        caller_agent,
+        deny_environment,
+        first_field,
+        invokes_script,
+        read_payload,
+    )
+except BaseException as _exc:  # noqa: BLE001  -- SystemExit and KeyboardInterrupt at import refuse too
+    _IMPORT_ERROR: BaseException | None = _exc  # swallow: run_gate refuses every call, naming this error
+else:
+    _IMPORT_ERROR = None
 
 HOOK = "require-privacy-agent"
 
@@ -109,4 +123,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_gate(HOOK, main, _IMPORT_ERROR))

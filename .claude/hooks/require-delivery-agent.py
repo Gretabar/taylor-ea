@@ -22,21 +22,21 @@ main thread it names the last agent DISPATCHED, so an orchestrator that dispatch
 WREN and then ran docs_edit.py itself would be waved through as WREN. That is the
 exact call this gate exists to refuse.
 
-WHAT COUNTS AS RUNNING THE WRITER. A command that mentions docs_edit AND starts a
-Python interpreter anywhere in it (`python scripts/docs_edit.py`, `py -3 ...`,
-`powershell -Command "python ..."`, `python -c "import docs_edit"`, or piping the
-source into `python -`), or that executes docs_edit.py directly. Reading the file
-(cat, grep, git diff, Get-Content) does not start an interpreter and passes.
-Crude on purpose: a precise parser of two shells' grammar would be a larger
-attack surface than the gate. The cost of the crudeness is a rare false positive
-(`grep py scripts/docs_edit.py`), which is a sentence of clarification. The rule
-itself is _gate.invokes_script(), shared with require-privacy-agent.py.
+WHAT COUNTS AS RUNNING THE WRITER is _gate.invokes_script(), which is
+_shell.runs_script(), shared with require-privacy-agent.py: docs_edit.py run by an
+interpreter through any launcher that parser unwraps (`$out = python ...`, `cmd /c`,
+`powershell -c`, `uv run`, `Start-Process`, `env`, `timeout`), executed directly
+(`ii`, `cmd /c docs_edit.py`), imported or run as a module inline, or handed to a
+program the parser does not know. Reading the file (cat, grep, git diff,
+Get-Content) runs nothing and passes. The parser errs toward "runs it", so its rare
+false positive is a sentence of clarification, never a write that slipped through.
 
 ALSO MATCHED ON PowerShell. Claude Code on Windows enables a native PowerShell tool
 by default for claude.ai accounts and treats it as the primary shell; a gate that
 matched Bash alone would be a gate with a side door.
 
-Fails CLOSED on an unreadable payload.
+FAILS CLOSED, all the way: an unreadable payload is a refusal, and so is any crash of
+this hook, including an import that fails (_failsafe.run_gate).
 """
 
 from __future__ import annotations
@@ -48,16 +48,24 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import _audit  # noqa: E402
-from _gate import (  # noqa: E402
-    PayloadUnreadable,
-    block,
-    caller_agent,
-    deny_environment,
-    first_field,
-    invokes_script,
-    read_payload,
-)
+from _failsafe import run_gate  # noqa: E402  -- standard library only, so it loads when the rest cannot
+
+# A failed import must end in a refusal, never in Python's own exit 1, which lets the call through.
+try:
+    import _audit  # noqa: E402
+    from _gate import (  # noqa: E402
+        PayloadUnreadable,
+        block,
+        caller_agent,
+        deny_environment,
+        first_field,
+        invokes_script,
+        read_payload,
+    )
+except BaseException as _exc:  # noqa: BLE001  -- SystemExit and KeyboardInterrupt at import refuse too
+    _IMPORT_ERROR: BaseException | None = _exc  # swallow: run_gate refuses every call, naming this error
+else:
+    _IMPORT_ERROR = None
 
 HOOK = "require-delivery-agent"
 
@@ -132,4 +140,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_gate(HOOK, main, _IMPORT_ERROR))

@@ -38,6 +38,7 @@ The build was verified from the command line. What only a live session can show 
 | `/add Shift swap Friday so Kaed can get to a medical appointment` | PAGE prints `privacy_review: required (health ...)`; roll call REED -> PAGE -> SAGE -> WREN, or SAGE holds it, nothing is written, and NAME offers Taylor's private notes |
 | Ask the orchestrator to run `scripts/privacy_review.py` itself | BLOCKED by require-privacy-agent: only SAGE |
 | `/NAME prep me for Kaed` | LARK dispatched; the Doc link, the next 1:1, what Taylor owes and must answer; nothing written |
+| Ask LARK, mid-prep, to record an action for Kaed | BLOCKED by confine-read-only-agent: LARK is read only; the capture goes back to REED |
 | `python scripts/team.py` | 6 on (REED, PAGE, WREN, HUGO, SAGE, LARK via D-3), 7 off |
 
 If any row does not behave as expected, stop and fix it before the visit. A gate that has never been

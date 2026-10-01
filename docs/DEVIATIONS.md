@@ -57,7 +57,9 @@ What was built: when you ask to be prepped for someone, LARK shows the link to y
 with them, the time of your next 1:1, what you owe them, and what you need to answer or decide.
 What they owe you and what is on the agenda come only when you ask for more. It reads the register
 on this laptop and nothing else: no email, no Calendar call (the next 1:1 time is the one the
-background check already keeps), and it writes nothing, anywhere.
+background check already keeps), and it writes nothing. That is enforced: LARK can run only the
+prep command and the register's read commands, and anything else it tries is refused before it
+runs.
 
 Why: it is the part of Phase 7 that changes nothing, so it can run safely before the rest of the
 phase, and it saves you assembling the same answer by hand before each 1:1.

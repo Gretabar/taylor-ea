@@ -39,21 +39,26 @@ call, but with a generic message and from a static list: it cannot say APPROVED,
 BUILT YET the day Taylor approves a phase, because that depends on
 context/architecture/phases.json.
 
-THE SHELL CHECK IS CRUDE AND SAYS SO. It reads each command fragment's program, past
-call operators and env assignments, and looks one level into a quoted argument (so
-`powershell -Command "claude -p ..."` is seen). A separator inside a quoted wrapper
-can still split it where the shell would not; erring there costs a missed refusal of
-a dispatch that no prose in this system ever asks for.
+THE SHELL CHECK is _shell.program_runs(), the parser every shell gate shares: the
+claude CLI (or `npx @anthropic-ai/claude-code`) started through any launcher it
+unwraps, `$out = claude -p`, `cmd /c "claude -p hi"`, `Start-Process -FilePath claude`,
+`env` and `timeout` prefixes, `powershell -c claude ...`, `x=$(claude ...)`,
+`(claude ...)`, an encoded PowerShell command, and a string piped into iex or bash.
+It does not look inside the quoted arguments of an ordinary program, so a capture whose
+text says "Claude -p rota" is not a dispatch.
+
+team.py IS IMPORTED ONLY FOR A DISPATCH. Most shell commands are not one, and a
+broken team.py must not refuse them all: that would refuse `python
+scripts/ea_doctor.py`, the command every refusal tells Taylor to run.
 
 FAILS CLOSED, all the way: an unreadable payload, an unreadable team file, and any
 crash of this hook itself are refusals. Python's own exit code on a traceback is 1,
-which Claude Code treats as a non-blocking error, so an uncaught exception here would
-be a dispatch waved through. main() catches everything and refuses instead.
+which Claude Code treats as a non-blocking error, so _failsafe.run_gate() turns every
+crash, including a failed import, into a refusal.
 """
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -61,7 +66,9 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-# Even a failed import must end in a refusal, never in Python's own exit 1 (non-blocking).
+from _failsafe import run_gate  # noqa: E402  -- standard library only, so it loads when the rest cannot
+
+# A failed import must end in a refusal, never in Python's own exit 1, which lets the call through.
 try:
     import _audit  # noqa: E402
     from _gate import (  # noqa: E402
@@ -72,8 +79,9 @@ try:
         read_payload,
         tool_input,
     )
-except Exception as _exc:  # noqa: BLE001
-    _IMPORT_ERROR: Exception | None = _exc  # swallow: main() refuses every call, naming this error
+    from _shell import program_runs  # noqa: E402
+except BaseException as _exc:  # noqa: BLE001  -- SystemExit and KeyboardInterrupt at import refuse too
+    _IMPORT_ERROR: BaseException | None = _exc  # swallow: run_gate refuses every call, naming this error
     REPO_ROOT = HERE.parents[1]
 else:
     _IMPORT_ERROR = None
@@ -95,65 +103,31 @@ SESSION_LINES = (
     "Send the work to the agent whose lane it is with the Agent tool instead.",
 )
 
-# Programs that only read the file or text they are given. A fragment led by one of
-# these mentions claude; it does not start it.
-READERS = frozenset({
-    "cat", "type", "gc", "get-content", "more", "less", "head", "tail", "grep", "egrep", "fgrep", "rg",
-    "findstr", "select-string", "sls", "sed", "awk", "wc", "diff", "fc", "git", "ls", "dir",
-    "get-childitem", "gci", "echo", "printf", "write-output", "write-host", "code", "notepad", "#",
-})
-PREFIXES = frozenset({"&", ".", "call", "start", "start-process", "saps", "exec", "time", "nohup", "npx",
-                      "bunx", "cmd", "/c"})
-SEPARATORS = re.compile(r"\|\||&&|[;|\r\n]")
-TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|\S+')
-ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
-
-
-def _name(token: str) -> str:
-    stem = token.strip("'\"").replace("\\", "/").rsplit("/", 1)[-1].lower()
-    for suffix in (".exe", ".cmd", ".ps1", ".bat"):
-        if stem.endswith(suffix):
-            return stem[: -len(suffix)]
-    return stem
-
-
 CLAUDE_PROGRAMS = frozenset({"claude", "claude-code"})  # claude-code: `npx @anthropic-ai/claude-code`
+SESSION_FLAGS = frozenset({"--agents", "-p", "--print"})
 
 
-def claude_cli_dispatch(command: str, depth: int = 0) -> tuple[str, str] | None:
+def claude_cli_dispatch(command: str) -> tuple[str, str] | None:
     """("agent", NAME) or ("session", flag) when this command starts the claude CLI as a dispatch."""
-    if "claude" not in (command or "").lower():
-        return None  # the common case, decided before any parsing, so a parser fault cannot touch it
-    for fragment in SEPARATORS.split(command or ""):
-        raw = TOKEN.findall(fragment)
-        tokens = [t.strip("'\"") for t in raw]
-        i = 0
-        while i < len(tokens) and (tokens[i].lower() in PREFIXES or ENV_ASSIGNMENT.match(tokens[i])):
-            i += 1
-        if i >= len(tokens) or _name(tokens[i]) in READERS:
-            continue
-        if _name(tokens[i]) in CLAUDE_PROGRAMS:
-            # Flattened, so flags passed inside one quoted argument (Start-Process
-            # claude -ArgumentList '-p hi') are still seen.
-            args = " ".join(tokens[i + 1:]).split()
-            session = None
-            for j, arg in enumerate(args):
-                flag, _, inline = arg.partition("=")
-                if flag == "--agent":
-                    return "agent", inline or (args[j + 1] if j + 1 < len(args) else "")
-                if flag in ("--agents", "-p", "--print") and session is None:
-                    session = flag
-            if session:
-                return "session", session
-            continue
-        if depth < 2:
-            # A wrapper (powershell -Command "...", bash -c '...'): look inside its quoted argument.
-            for token in raw[i + 1:]:
-                if token[:1] in "'\"" and " " in token:
-                    found = claude_cli_dispatch(token.strip("'\""), depth + 1)
-                    if found:
-                        return found
-    return None
+    session = None
+    for args in program_runs(command or "", CLAUDE_PROGRAMS):
+        # Flattened, so flags passed inside one quoted argument (Start-Process claude
+        # -ArgumentList '-p hi') are still seen.
+        flat = " ".join(args).split()
+        for j, arg in enumerate(flat):
+            flag, _, inline = arg.partition("=")
+            if flag == "--agent":
+                return "agent", inline or (flat[j + 1] if j + 1 < len(flat) else "")
+            if flag in SESSION_FLAGS and session is None:
+                session = flag
+    return ("session", session) if session else None
+
+
+def _team_module():
+    """scripts/team.py, imported only when a call turned out to be a dispatch."""
+    import team  # noqa: PLC0415  -- from scripts/, put on sys.path above
+
+    return team
 
 
 def decide(tool: str, given: dict, team) -> tuple[bool, str, tuple[str, ...]]:
@@ -162,8 +136,6 @@ def decide(tool: str, given: dict, team) -> tuple[bool, str, tuple[str, ...]]:
     `team` is a scripts/team.py Team, or None when the call turned out not to be a
     dispatch (then it is never consulted).
     """
-    import team as team_module  # noqa: PLC0415  -- from scripts/, put on sys.path above
-
     if tool == "Workflow":
         return False, "workflow", WORKFLOW_LINES
     if tool in SHELL_TOOLS:
@@ -176,12 +148,12 @@ def decide(tool: str, given: dict, team) -> tuple[bool, str, tuple[str, ...]]:
         # A named agent that is switched off gets its own two lines, which tell Taylor
         # more. One that is on is refused all the same: a second session started from
         # the shell is invisible to the roll call whoever it runs as.
-        allowed, rule_id, lines = team_module.dispatch_verdict(team, value)
+        allowed, rule_id, lines = _team_module().dispatch_verdict(team, value)
         if not allowed:
             return False, rule_id, lines
         return False, "claude-cli:--agent", SESSION_LINES
     if tool in DISPATCH_TOOLS:
-        return team_module.dispatch_verdict(team, str(given.get("subagent_type") or ""))
+        return _team_module().dispatch_verdict(team, str(given.get("subagent_type") or ""))
     return True, "not-a-dispatch", ()
 
 
@@ -206,8 +178,7 @@ def run() -> int:
     given = tool_input(payload)
     team = None
     if needs_team(tool, given):
-        import team as team_module  # noqa: PLC0415
-
+        team_module = _team_module()
         try:
             team = team_module.load(REPO_ROOT)
         except team_module.TeamUnreadable as exc:
@@ -228,30 +199,9 @@ def run() -> int:
     return block(list(lines))
 
 
-def refuse_crash(exc: Exception) -> int:
-    """The refusal for a crash, written without anything this hook imports, since that may be what broke."""
-    message = "\n".join([
-        f"BLOCKED: {HOOK} crashed ({exc.__class__.__name__}: {str(exc)[:160]}) before it could",
-        "check this call, so it is refusing rather than letting an unchecked agent start.",
-        "This is an ENVIRONMENT fault. Run `python scripts/ea_doctor.py` and send Mike the output.",
-    ]) + "\n"
-    try:
-        sys.stderr.buffer.write(message.encode("utf-8"))
-    except Exception:  # noqa: BLE001
-        pass  # swallow: nowhere left to write; the exit code below still refuses
-    return 2
-
-
 def main() -> int:
-    try:
-        if _IMPORT_ERROR is not None:
-            raise _IMPORT_ERROR
-        return run()
-    except Exception as exc:  # noqa: BLE001
-        # swallow: converted into a refusal. An uncaught traceback exits 1, which Claude
-        # Code treats as non-blocking, so letting it escape would wave the dispatch through.
-        return refuse_crash(exc)
+    return run()
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run_gate(HOOK, main, _IMPORT_ERROR))

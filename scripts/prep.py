@@ -13,24 +13,35 @@ and --deep adds what they owe Taylor and the topics on the agenda for the next 1
 Blueprint s.6 keeps employee action lists out of the brief; they are here only on
 request, which is the "deeper briefing" P3.7 allows.
 
-IT WRITES NOTHING, and that is enforced, not promised. The register is opened with a
-read-only SQLite connection and never migrated (a migration is a write). No Doc is
-read: the Doc link and the next 1:1 time come from the register, which the tick keeps
-current. No audit row, no proposal, no file. The acceptance harness hashes the whole
-register and re-reads the Doc around a run to show both unchanged.
+IT WRITES NO DATA, and that is enforced, not promised. The register is opened with a
+read-only SQLite connection (mode=ro, in a URI built by Path.as_uri() so a '#' or '?'
+in the path cannot cut it short and drop mode=ro) and never migrated, because a
+migration is a write. A register that is not at this schema version is refused with
+exit 3 rather than read half-built. No Doc is read: the Doc link and the next 1:1 time
+come from the register, which the tick keeps current. No audit row, no proposal.
+
+WHAT SQLITE ITSELF MAY LEAVE, stated: the register runs in WAL mode, and when no other
+connection has it open, opening it even read-only makes SQLite create its WAL index
+files beside it (state/ea.db-wal, empty, and state/ea.db-shm, the shared-memory index).
+They hold no data of their own and the next writer reuses them. So "writes nothing"
+means the database file's bytes and the -wal's contents are unchanged: the acceptance
+harness compares exactly those, lists both files before and after, and hashes the
+register's logical contents, and it re-reads the Doc around a run to show it unchanged.
 
 Usage (LARK):
     python scripts/prep.py --person Kaed            the brief: Taylor's items only
     python scripts/prep.py --person kaed --deep     plus what Kaed owes, and the agenda
     python scripts/prep.py --person kaed --json     everything, machine-readable
 
-Exit 0 printed; 1 the person is not one exact match; 2 the register does not exist.
+Exit 0 printed; 1 the person is not one exact match; 2 the register does not exist;
+3 the register exists but is not set up at this schema version, or cannot be read.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -140,6 +151,17 @@ def main() -> int:
         return 2
     conn = ea_db.connect(read_only=True)
     try:
+        try:
+            version = ea_db.user_version(conn)
+        except sqlite3.Error as exc:
+            print(f"NO PREP: the register {ea_db.DB_PATH} cannot be read ({exc}). Nothing was changed. "
+                  f"Run python scripts/ea_doctor.py and send Mike the output.", file=sys.stderr)
+            return 3
+        if version != ea_db.SCHEMA_VERSION:
+            print(f"NO PREP: the register {ea_db.DB_PATH} is not set up for this version (schema {version}, "
+                  f"prep needs {ea_db.SCHEMA_VERSION}). Prep only reads, so it does not set it up; nothing was "
+                  f"changed. Run python scripts/ea_doctor.py and send Mike the output.", file=sys.stderr)
+            return 3
         prep = build(conn, args.person, date.fromisoformat(args.date) if args.date else None)
     except (PrepRefused, register.RegisterError) as exc:
         print(f"NO PREP: {exc}", file=sys.stderr)

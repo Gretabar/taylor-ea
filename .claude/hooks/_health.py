@@ -16,6 +16,7 @@ import json
 import os
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.environ.get("EA_ROOT") or os.environ.get("CLAUDE_PROJECT_DIR") or os.path.dirname(os.path.dirname(HERE))
@@ -27,6 +28,12 @@ TICK_OK_HOURS = 26  # a daily job, a night's sleep, an hour of slack
 def db_path() -> str:
     """The LIVE register. Fixture runs never count as liveness."""
     return os.environ.get("EA_DB") or os.path.join(REPO_ROOT, "state", "ea.db")
+
+
+def read_only_uri(path: str) -> str:
+    """mode=ro, with the path percent-encoded by Path.as_uri(). Pasted into an f-string, a '#'
+    in a folder name starts the URI's fragment and SQLite opens a shorter path read-write."""
+    return Path(path).resolve().as_uri() + "?mode=ro"
 
 
 def system_label() -> str:
@@ -50,8 +57,8 @@ def tick_age_hours(path: str | None = None) -> float | None:
     if not os.path.exists(target):
         return None
     try:
-        conn = sqlite3.connect(f"file:{target.replace(os.sep, '/')}?mode=ro", uri=True, timeout=1.0)
-    except sqlite3.Error:
+        conn = sqlite3.connect(read_only_uri(target), uri=True, timeout=1.0)
+    except (sqlite3.Error, OSError, ValueError):
         return None  # swallow: unknown, and rendered as unknown rather than healthy
     try:
         row = conn.execute(

@@ -35,7 +35,15 @@ GATES COVERED (the plan's list, plus the ones that keep them honest):
                         near-misses ("manager bonus structure", "Christmas lights") pass
   privacy-stamp         docs_edit.py refuses a flagged proposal without SAGE's approval
                         of those exact bytes
-  privacy-agent         scripts/privacy_review.py runs only inside SAGE
+  privacy-agent         scripts/privacy_review.py runs only inside SAGE, and reading the
+                        privacy_reviews table is not running it
+  dispatch              require-dispatch.py lets a record write through only on POSITIVE
+                        evidence that an agent ran this turn; the reviewers' transcript
+                        reproductions (a truncated refusal, a wrapped one, a result not
+                        written yet, an unparseable user row, null text, deep nesting)
+  read-only-agent       LARK's shell runs only prep.py and the register's read subcommands
+  failsafe              a gate that crashes, cannot import, or returns anything but 0 or 2
+                        refuses; a refusal quoting a lone surrogate still refuses
 
 WHAT IS NOT COVERED, stated: this drives the pure decision function inside each
 gate. It does not prove Claude Code invokes the hook (wiring proves it is
@@ -45,8 +53,14 @@ table in INSTALL.md is the live half.
 --mutation-test breaks each gate on purpose and asserts this self-test then reports
 failures for that gate. For most gates the break is "always allow". The roll call
 gets one break per outcome, each naming the case that must go red, because a roll
-call that says the wrong reassuring thing is not caught by any single mutation. A
-self-test that stays green when the gate is removed is not a test.
+call that says the wrong reassuring thing is not caught by any single mutation. Every
+rule added by the hardening review gets its own aimed break. A self-test that stays
+green when the gate is removed is not a test.
+
+It then injects a fault into each blocking gate, in a throwaway copy of the repo: the
+gate's main() raises, and separately _gate.py will not import. Each gate is run as
+Claude Code runs it and must exit 2. Claude Code blocks only on exit 2; a gate that
+crashed into exit 1 would let the call it was checking through.
 
 Usage:
     python scripts/validate_guardrails.py --self-test [--verbose] [--only GATE ...]
@@ -59,10 +73,14 @@ import argparse
 import contextlib
 import importlib
 import importlib.util
+import io
 import itertools
 import json
 import os
+import re
+import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
@@ -91,9 +109,15 @@ def load_hook(filename: str):
     return module
 
 
+def _safe(text) -> str:
+    """Printable whatever it holds: several fixtures carry a lone UTF-16 surrogate on purpose."""
+    return str(text).encode("utf-8", errors="replace").decode("utf-8")
+
+
 class Problem:
     def __init__(self, rule: str, label: str, expected: str, got: str, detail: str = ""):
-        self.rule, self.label, self.expected, self.got, self.detail = rule, label, expected, got, detail
+        self.rule, self.label, self.expected, self.got, self.detail = (
+            rule, label, _safe(expected), _safe(got), _safe(detail))
 
     def __str__(self) -> str:
         line = f"{self.rule}: {self.label}\n      expected {self.expected}, got {self.got}"
@@ -141,6 +165,27 @@ def check_delivery_agent(problems: list) -> int:
         ("block: imported inline", 'python -c "import docs_edit"', "PAGE", True),
         ("block: wrapped in powershell -Command",
          'powershell -Command "python scripts/docs_edit.py add-action --doc X"', "MAIN", True),
+        ("block: a PowerShell assignment", "$out = python scripts/docs_edit.py add-topic --doc X", "MAIN", True),
+        ("block: cmd /c with the program quoted", 'cmd /c "python scripts\\docs_edit.py add-topic"', "PAGE", True),
+        ("block: cmd /c running the script directly", "cmd /c scripts\\docs_edit.py add-topic", "PAGE", True),
+        ("block: Start-Process -FilePath python", "Start-Process -FilePath python -ArgumentList 'scripts/docs_edit.py'",
+         "MAIN", True),
+        ("block: an env prefix", "env EA_FIXTURE_MODE=1 python scripts/docs_edit.py add-topic", "MAIN", True),
+        ("block: a timeout prefix", "timeout 60 python scripts/docs_edit.py add-topic", "MAIN", True),
+        ("block: powershell -c, unquoted", "powershell -c python scripts/docs_edit.py add-topic", "MAIN", True),
+        ("block: inside $(...)", "x=$(python scripts/docs_edit.py add-topic)", "MAIN", True),
+        ("block: inside a subshell", "(python scripts/docs_edit.py add-topic)", "MAIN", True),
+        ("block: python3.14", "python3.14 scripts/docs_edit.py add-topic", "MAIN", True),
+        ("block: uv run", "uv run scripts/docs_edit.py add-topic", "MAIN", True),
+        ("block: Invoke-Item executes the script", "ii scripts\\docs_edit.py", "MAIN", True),
+        ("block: upper case", "PYTHON SCRIPTS/DOCS_EDIT.PY add-topic", "MAIN", True),
+        ("block: a runner module handed the script", "python -m trace --trace scripts/docs_edit.py", "MAIN", True),
+        ("block: a backtick-escaped interpreter (PowerShell)", "p`ython scripts\\docs_edit.py add-topic", "MAIN", True),
+        ("block: an escaped quote hiding a separator (bash)",
+         'echo \\"; python scripts/docs_edit.py add-topic; echo \\"', "MAIN", True),
+        ("block: a here-string that hides the separator (PowerShell)",
+         '$x = @"\na"b\n"@; python scripts/docs_edit.py add-topic', "MAIN", True),
+        ("block: a lone surrogate in a comment", edit + " # \ud83d", "MAIN", True),
         ("pass: WREN runs the writer", edit, "WREN", False),
         ("pass: PAGE writes a proposal (a different script)",
          "python scripts/docs_propose.py add-topic --doc X --ref T-0001", "PAGE", False),
@@ -148,6 +193,9 @@ def check_delivery_agent(problems: list) -> int:
          "grep -n writeControl scripts/docs_edit.py", "MAIN", False),
         ("pass: git history of the writer", "git log --oneline -- scripts/docs_edit.py", "MAIN", False),
         ("pass: the orchestrator reads a Doc", "python scripts/docs_read.py --doc X", "MAIN", False),
+        ("pass: compiling the writer is not running it", "python -m py_compile scripts/docs_edit.py", "MAIN", False),
+        ("pass: a capture that mentions the writer in its words",
+         "python scripts/register.py add-topic --person kaed --text 'docs_edit refuses'", "MAIN", False),
     ]:
         allowed, rule = hook.decide(command, caller)
         cases += expect(problems, "delivery-agent", label, want_block, not allowed, rule)
@@ -159,6 +207,10 @@ def check_delivery_agent(problems: list) -> int:
         ("agent_type without agent_id is the main thread", {"agent_type": "wren"}, "MAIN"),
         ("no agent fields at all is the main thread", {}, "MAIN"),
         ("subagent payload naming nobody on the roster", {"agent_id": "a1", "agent_type": "Explore"}, None),
+        ("another plugin's wren is not ours", {"agent_id": "a1", "agent_type": "x:wren"}, None),
+        ("another plugin's sage is not ours", {"agent_id": "a1", "agent_type": "otherplugin:sage"}, None),
+        ("a doubled prefix names nobody", {"agent_id": "a1", "agent_type": "ea:x:wren"}, None),
+        ("this repo's prefix in capitals", {"agent_id": "a1", "agent_type": "EA:WREN"}, "WREN"),
     ]:
         cases += expect_equal(problems, "delivery-agent", f"caller: {label}", want, gate.caller_agent(payload))
 
@@ -533,10 +585,14 @@ def check_content(problems: list) -> int:
 # wiring
 # --------------------------------------------------------------------------
 
+def _load_settings() -> dict:
+    return json.loads((REPO_ROOT / ".claude" / "settings.json").read_bytes().decode("utf-8"))
+
+
 def check_wiring(problems: list) -> int:
     cases = 1
     try:
-        settings = json.loads((REPO_ROOT / ".claude" / "settings.json").read_bytes().decode("utf-8"))
+        settings = _load_settings()
     except (OSError, ValueError) as exc:
         problems.append(Problem("wiring", "settings.json parses", "parsed", str(exc)))
         return cases
@@ -561,6 +617,8 @@ def check_wiring(problems: list) -> int:
         ("announce-dispatch.py", ("Agent",)),
         ("require-active-agent.py", ("Agent", "Task", "Workflow", "Bash", "PowerShell")),
         ("require-privacy-agent.py", ("Bash", "PowerShell")),
+        ("confine-read-only-agent.py", ("Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit",
+                                        "WebFetch", "mcp__", "Agent", "Workflow")),
     ]:
         matcher = matcher_for(filename)
         cases += expect(problems, "wiring", f"{filename} is wired", True, matcher is not None)
@@ -568,6 +626,28 @@ def check_wiring(problems: list) -> int:
             missing = [m for m in must_match if m not in matcher]
             cases += expect(problems, "wiring", f"{filename} matches {', '.join(must_match)}",
                             True, not missing, f"matcher={matcher!r} missing={missing}")
+
+    # Claude Code blocks only on exit 2. Each gate's command maps any other failure (a crash
+    # before run_gate, a missing interpreter) to exit 2; the hooks that must never block do not.
+    for group in groups:
+        for entry in group.get("hooks", []):
+            command = entry.get("command", "")
+            gate = next((g for g in BLOCKING_GATES if g in command), None)
+            if gate:
+                cases += expect(problems, "wiring", f"{gate} turns any exit but 0 or 2 into a block", True,
+                                bool(WRAPPER.search(command)), command[-120:])
+    for event in ("PostToolUse", "Stop"):
+        for group in settings.get("hooks", {}).get(event, []):
+            for entry in group.get("hooks", []):
+                cases += expect(problems, "wiring", f"the {event} hook never blocks", False,
+                                "exit 2" in entry.get("command", ""), entry.get("command", ""))
+    for group in groups:
+        for entry in group.get("hooks", []):
+            if "announce-dispatch.py" in entry.get("command", ""):
+                cases += expect(problems, "wiring", "the dispatch banner never blocks", False,
+                                "exit 2" in entry["command"], entry["command"])
+    cases += expect(problems, "wiring", "the status line never blocks", False,
+                    "exit 2" in json.dumps(settings.get("statusLine", {})))
 
     commands = json.dumps(settings.get("hooks", {}))
     for filename in ("team-rollcall.py", "validate-on-edit.sh"):
@@ -742,13 +822,36 @@ def check_rollcall(problems: list) -> int:
          [_user("prep TALLY"), *_refused("Agent", {"subagent_type": "tally", "prompt": "x"},
                                          "PreToolUse:Agent hook error: [x]: NOT SWITCHED ON", denial_kind=None),
           _say("relayed")], "QUIET"),
-        ("an agent that ran and then failed is still a dispatch -> TEAM line",
+        ("an agent that ran and reported a failure is still a dispatch -> TEAM line",
          [*_command("add", "Kaed: send Casey the bonus structure by Friday"),
           *_tool("Agent", {"subagent_type": "reed", "prompt": "capture it"}),
           *_tool("Agent", {"subagent_type": "page", "prompt": "propose it"}),
-          *_refused("Agent", {"subagent_type": "wren", "prompt": "deliver it"},
-                    "WREN stopped: the API returned 500", denial_kind=None),
+          *_ran("Agent", {"subagent_type": "wren", "prompt": "deliver it"}, "WREN stopped: the API returned 500"),
           _say("WREN failed.")], "TEAM"),
+        ("an Agent error that is not a recognised refusal proves nothing -> UNVERIFIED, never the TEAM line",
+         [*_command("add", "Kaed: send Casey the bonus structure by Friday"),
+          *_refused("Agent", {"subagent_type": "reed", "prompt": "capture it"},
+                    "REED stopped: the API returned 500", denial_kind=None),
+          _say("REED failed.")], "UNVERIF"),
+        ("a refusal wrapped in a <tool_use_error> tag is not a dispatch -> UNVERIFIED, never MILO's TEAM line",
+         [_user("process the transcript"),
+          *_refused("Agent", {"subagent_type": "milo", "prompt": "process it"},
+                    "<tool_use_error>" + MILO_REFUSAL + "</tool_use_error>", denial_kind=None),
+          _say("relayed")], "UNVERIF"),
+        ("a dispatched turn with a line that does not parse -> UNVERIFIED, never the TEAM line",
+         [*capture[:-1], '{"type": "user", "message": {"content": [{"type": "tool_res', _say("done")], "UNVERIF"),
+        ("this turn's user row did not parse, so an earlier turn's dispatch is not this one's -> UNVERIFIED",
+         [*capture, json.dumps(_user("prep me for Kaed"))[:40], *_bash("python scripts/prep.py --person Kaed"),
+          _say("No outstanding prep.")], "UNVERIF"),
+        ("a result row whose text is null does not crash the roll call -> quiet line",
+         [_user("what do I owe?"), {"type": "user", "message": {"content": [
+             {"type": "tool_result", "tool_use_id": "t9", "is_error": True, "content": [{"type": "text", "text": None}]}]}},
+          _say("Nothing.")], "QUIET"),
+        ("an assistant row whose message is null does not crash the roll call -> quiet line",
+         [_user("what do I owe?"), {"type": "assistant", "message": None}, _say("Nothing.")], "QUIET"),
+        ("a line nested a hundred thousand levels deep does not crash the roll call -> UNVERIFIED",
+         [_user("what do I owe?"), '{"type":"assistant","x":' + "[" * 100000 + "]" * 100000 + "}", _say("Nothing.")],
+         "UNVERIF"),
         ("a Workflow nobody refused ran agents the roll call cannot see -> UNVERIFIED",
          [_user("audit everything"), *_tool("Workflow", {"script": "export const meta = {}"}), _say("done")],
          "UNVERIF"),
@@ -828,6 +931,26 @@ def check_rollcall(problems: list) -> int:
     ]:
         got = "write" if _activity.shell_writes(command) else "read"
         cases += expect_equal(problems, "rollcall", f"{want}: {label}", want, got)
+
+    # An agent whose result is not written yet: the bar says it is running; the roll call,
+    # which fires when the turn ends, does not count it.
+    running = _transcript([_user("capture it"), *_unanswered("Agent", {"subagent_type": "reed", "prompt": "capture"})])
+    try:
+        cases += expect_equal(problems, "rollcall", "a dispatch with no result yet is not counted by the roll call",
+                              hook.UNVERIFIED, hook.team_block(running))
+        kind, names = bar._verdict_uncached(running)
+        cases += expect_equal(problems, "rollcall", "status line shows 'REED running' while REED has no result yet",
+                              True, bar.render("EA", kind, names, 1.0, False).endswith("  REED running"))
+    finally:
+        os.unlink(running)
+
+    # Another plugin's agent is named as itself, never as the agent on this team it shares a name with.
+    foreign = _transcript([_user("review it"), *_tool("Agent", {"subagent_type": "otherplugin:sage"}), _say("done")])
+    try:
+        cases += expect_equal(problems, "rollcall", "another plugin's sage is shown as OTHERPLUGIN:SAGE, never as SAGE",
+                              "TEAM  |  OTHERPLUGIN:SAGE  (1 dispatched)", hook.team_block(foreign))
+    finally:
+        os.unlink(foreign)
 
     # A refused dispatch beside a real one: the TEAM line names only the agent that ran.
     mixed = _transcript([_user("capture it, and process the transcript"),
@@ -937,6 +1060,28 @@ def check_active_agent(problems: list) -> int:
         ("block: Start-Process with the flags in one quoted argument", "PowerShell",
          {"command": "Start-Process claude -ArgumentList '-p summarise it'"}, True),
         ("block: Invoke-Expression around claude", "PowerShell", {"command": 'iex "claude --agent milo"'}, True),
+        ("block: $out = claude -p", "PowerShell", {"command": '$out = claude -p "summarize"'}, True),
+        ("block: cmd /c with the program quoted", "Bash", {"command": 'cmd /c "claude -p hi"'}, True),
+        ("block: Start-Process -FilePath claude", "PowerShell",
+         {"command": 'Start-Process -FilePath claude -ArgumentList "-p hi"'}, True),
+        ("block: env prefix", "Bash", {"command": "env claude -p hi"}, True),
+        ("block: timeout prefix", "Bash", {"command": "timeout 600 claude -p hi"}, True),
+        ("block: powershell -c, unquoted", "Bash", {"command": "powershell -c claude -p hi"}, True),
+        ("block: x=$(claude ...)", "Bash", {"command": "x=$(claude -p hi)"}, True),
+        ("block: a subshell", "Bash", {"command": "(claude -p hi)"}, True),
+        ("block: after a background job", "Bash", {"command": "sleep 1 & claude -p hi"}, True),
+        ("block: a string piped into iex", "PowerShell", {"command": '"claude -p hi" | iex'}, True),
+        ("block: an encoded PowerShell command", "Bash",
+         {"command": "powershell -EncodedCommand YwBsAGEAdQBkAGUAIAAtAHAAIABoAGkA"}, True),
+        ("block: a here-doc piped into bash", "Bash", {"command": "cat <<'EOF' | bash\nclaude -p hi\nEOF"}, True),
+        ("block: an escaped program name (bash ANSI-C quoting)", "Bash", {"command": "$'\\x63laude' -p hi"}, True),
+        ("block: another plugin's sage is not SAGE", "Agent", {"subagent_type": "otherplugin:sage"}, True),
+        ("block: another plugin's reed is not REED", "Agent", {"subagent_type": "stevie:reed"}, True),
+        ("block: a doubled prefix", "Agent", {"subagent_type": "ea:milo:reed"}, True),
+        ("pass: REED with this repo's prefix", "Agent", {"subagent_type": "ea:reed"}, False),
+        ("pass: a capture whose words mention claude -p", "Bash",
+         {"command": 'python scripts/register.py add-topic --person kaed --text "Claude -p rota"'}, False),
+        ("pass: prep for a person named Claude", "Bash", {"command": 'python scripts/prep.py --person "Claude"'}, False),
         ("pass: REED", "Agent", {"subagent_type": "reed"}, False),
         ("pass: PAGE", "Agent", {"subagent_type": "page"}, False),
         ("pass: WREN", "Agent", {"subagent_type": "wren"}, False),
@@ -971,6 +1116,9 @@ def check_active_agent(problems: list) -> int:
         ("pass: TALLY once Phase 6 is resumed and built", _team_variant(
             phases={"6": {"approved": True, "deferred": False}},
             builds={"phase 6": {"accepted": "2026-11-01"}}), "tally", False),
+        ("block: TALLY with Phase 6 approved and built while the deferral is not lifted", _team_variant(
+            phases={"6": {"approved": True, "deferred": True}},
+            builds={"phase 6": {"accepted": "2026-11-01"}}), "tally", True),
     ]:
         allowed, rule, _ = hook.decide("Agent", {"subagent_type": name}, which)
         cases += expect(problems, "active-agent", label, want_block, not allowed, rule)
@@ -982,13 +1130,45 @@ def check_active_agent(problems: list) -> int:
          {"phases": {str(n): {"approved": False} for n in range(1, 7)}}),
         ("an approval that is not true or false", {"agents": [{"name": "REED", "phase": 1, "lane": "x"}]},
          {"phases": {**{str(n): {"approved": False} for n in range(1, 8)}, "1": {"approved": "yes"}}}),
-    ]:
+        ("a deferral that is not true or false", {"agents": [{"name": "REED", "phase": 1, "lane": "x"}]},
+         {"phases": {**{str(n): {"approved": False} for n in range(1, 8)}, "6": {"approved": False, "deferred": "yes"}}}),
+        ("a read_only flag that is not true or false",
+         {"agents": [{"name": "LARK", "phase": 1, "lane": "x", "read_only": "yes"}]},
+         {"phases": {str(n): {"approved": False} for n in range(1, 8)}}),
+    ] + [(f"a build accepted {value!r}, which is not a date",
+          {"agents": [{"name": "REED", "phase": 1, "lane": "x"}], "build_record": {"phase 1": {"accepted": value}}},
+          {"phases": {str(n): {"approved": n == 1} for n in range(1, 8)}})
+         for value in ("no", "pending", "false", "TBD", True, "2026-13-01")]:
         try:
             team.Team(roster, phases, {"deviations": {}})
             raised = False
         except team.TeamUnreadable:
             raised = True
         cases += expect(problems, "active-agent", f"block: {label} is unreadable, never read as off", True, raised)
+    cases += expect(problems, "active-agent", "pass: a build accepted on a real date switches the phase on", False,
+                    not team.Team({"agents": [{"name": "REED", "phase": 1, "lane": "x"}],
+                                   "build_record": {"phase 1": {"accepted": "2026-10-01"}}},
+                                  {"phases": {str(n): {"approved": n == 1} for n in range(1, 8)}},
+                                  {"deviations": {}}).status("reed").active)
+
+    # team.py is imported only for a dispatch: a broken team.py must not refuse every shell
+    # command, `python scripts/ea_doctor.py` (what the refusal tells Taylor to run) included.
+    with mock.patch.dict(sys.modules, {"team": None}):
+        for label, command in [("pass: the doctor runs while team.py cannot be imported", "python scripts/ea_doctor.py"),
+                               ("pass: an ordinary script runs while team.py cannot be imported",
+                                "python scripts/register.py owed")]:
+            try:
+                allowed, rule, _ = hook.decide("Bash", {"command": command}, None)
+            except Exception as exc:  # noqa: BLE001
+                # swallow: the import error is this case's failure, recorded as a refusal.
+                allowed, rule = False, f"raised {exc.__class__.__name__}"
+            cases += expect(problems, "active-agent", label, False, not allowed, rule)
+
+    # team.py and _gate.py apply one namespace rule.
+    import _gate
+    for raw in ("milo", "ea:milo", "EA:MILO", "otherplugin:sage", "x:wren", "ea:milo:reed", ":wren", "ea:", ""):
+        cases += expect_equal(problems, "active-agent", f"team.py and _gate.py agree on {raw!r}",
+                              _gate.agent_name(raw) or "", team.bare(raw))
 
     # Taylor's guide quotes the lines. If either side changes alone, he is told to expect
     # words he will never see.
@@ -1019,6 +1199,15 @@ def check_privacy_screen(problems: list) -> int:
         ("block: legal or immigration", "Work permit renewal", "legal or immigration"),
         ("block: one person's pay", "Kaed's raise", "individual pay"),
         ("block: a raise for a named person", "Raise for Casey", "individual pay"),
+        ("block: Zo\u00eb's raise (an accented name)", "Zo\u00eb's raise", "individual pay"),
+        ("block: \u00c9ric's salary", "\u00c9ric's salary", "individual pay"),
+        ("block: give Zo\u00e9 a raise", "give Zo\u00e9 a raise", "individual pay"),
+        ("block: raise for Zo\u00eb", "raise for Zo\u00eb", "individual pay"),
+        ("block: a decomposed accent (Zoe plus a combining diaeresis)", "Zoe\u0308's raise", "individual pay"),
+        ("block: full-width letters", "\uff2b\uff41\uff45\uff44's raise", "individual pay"),
+        ("block: a soft hyphen inside medical", "med\u00adical leave", "leave of absence"),
+        ("block: a zero-width space inside medical", "medi\u200bcal leave", "leave of absence"),
+        ("block: a zero-width joiner inside family", "fam\u200dily matter", "family"),
         ("pass: manager bonus structure", "manager bonus structure", None),
         ("pass: manager accountability", "Manager accountability", None),
         ("pass: leadership-structure feedback", "leadership-structure feedback", None),
@@ -1029,6 +1218,9 @@ def check_privacy_screen(problems: list) -> int:
         ("pass: family meal", "Family meal at 4", None),
         ("pass: raise prices", "Raise prices on the patio", None),
         ("pass: a structure-level bonus", "Casey's bonus structure", None),
+        ("pass: an accented name's bonus structure", "Zo\u00eb\u2019s bonus structure", None),
+        ("pass: an accented place, no person", "\u00c9cole booking for the patio", None),
+        ("pass: a raise for the patio heaters", "raise for the patio heaters", None),
     ]:
         flag = privacy_screen.screen(text)
         cases += expect(problems, "privacy-screen", label, want is not None, flag is not None,
@@ -1093,6 +1285,45 @@ def check_privacy_stamp(problems: list) -> int:
                 cases += expect(problems, "privacy-stamp", label, want_block, blocked, why)
         finally:
             conn.close()
+
+    # SAGE's hold recorded while WREN is mid-write. The first check passed; the hold lands
+    # while the Doc is being read; the write itself must still not happen.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = ea_db.connect(Path(tmp) / "toctou.db")
+        writes: list = []
+        try:
+            ea_db.migrate(conn)
+            proposal = {**flagged, "doc_id": "FIXTURE_DOC", "section": "agenda", "_index_id": None, "_sha256": "e" * 64}
+
+            def stamp_now(verdict: str) -> None:
+                with conn:
+                    conn.execute("INSERT INTO privacy_reviews (proposal_path, proposal_sha256, item_ref, verdict,"
+                                 " category, reason, reviewer, ts) VALUES ('p', ?, 'T-0001', ?, 'health', 'r', 'SAGE', ?)",
+                                 ("e" * 64, verdict, ea_db.now_iso()))
+
+            def fetch_while_sage_holds(service, doc_id):
+                stamp_now("hold")
+                return {"revisionId": "R1"}
+
+            stamp_now("approve")
+            with mock.patch.object(docs_edit, "check_proposal", return_value=proposal), \
+                    mock.patch.object(docs_edit, "check_allowlist", return_value={"section_map_json": "{}", "title": "t"}), \
+                    mock.patch.object(docs_edit.docs_read, "fetch", side_effect=fetch_while_sage_holds), \
+                    mock.patch.object(docs_edit.docs_read, "parse", return_value={}), \
+                    mock.patch.object(docs_edit, "plan", return_value=[{"insertText": {"text": "x"}}]), \
+                    mock.patch.object(docs_edit, "_batch", side_effect=lambda *a, **k: writes.append(a) or {}), \
+                    mock.patch.object(docs_edit._audit, "record"):
+                try:
+                    outcome = docs_edit.apply("add-topic", Path(tmp) / "p.json", doc_arg=None, simulate_stale=False,
+                                              service=object(), conn=conn)
+                except Exception as exc:  # noqa: BLE001
+                    # swallow: whatever apply() did after a write, the write is what this case judges.
+                    outcome = {"exit": f"raised {exc.__class__.__name__}"}
+        finally:
+            conn.close()
+    cases += expect(problems, "privacy-stamp", "block: a hold SAGE records while the Doc is being read stops the write",
+                    True, not writes and outcome.get("exit") == docs_edit.EXIT_REFUSED,
+                    f"writes sent: {len(writes)}, outcome: {outcome.get('exit')}")
     return cases
 
 
@@ -1111,7 +1342,20 @@ def check_privacy_agent(problems: list) -> int:
         ("block: imported inline", 'python -c "import privacy_review"', "MAIN", True),
         ("block: wrapped in powershell -Command", 'powershell -Command "python scripts/privacy_review.py --hold x"',
          "MAIN", True),
+        ("block: a lone surrogate in a comment", review + " # \ud83d", "MAIN", True),
+        ("block: a PowerShell assignment", "$r = python scripts/privacy_review.py --approve x.json --reason r",
+         "MAIN", True),
+        ("block: cmd /c", 'cmd /c "python scripts\\privacy_review.py --hold x.json --reason r"', "HUGO", True),
+        ("block: run as a module", "python -m privacy_review --hold x.json --reason r", "HUGO", True),
+        ("block: python3.14", "python3.14 scripts/privacy_review.py --hold x.json --reason r", "HUGO", True),
+        ("block: imported by name from the module", 'python -c "from privacy_review import record"', "HUGO", True),
+        ("block: another plugin's sage", review, None, True),
         ("pass: SAGE records a verdict", review, "SAGE", False),
+        ("pass: HUGO reads the privacy_reviews table",
+         'python -c "import sqlite3; c=sqlite3.connect(\'state/ea.db\'); '
+         'print(c.execute(\'SELECT * FROM privacy_reviews\').fetchall())"', "HUGO", False),
+        ("pass: the table read with sqlite3", 'sqlite3 state/ea.db "SELECT * FROM privacy_reviews"', "HUGO", False),
+        ("pass: git history of the reviewer", "git log --oneline -- scripts/privacy_review.py", "HUGO", False),
         ("pass: reading the script is not running it", "grep -n verdict scripts/privacy_review.py", "MAIN", False),
         ("pass: the screen is a different script", 'python scripts/privacy_screen.py --text "x"', "PAGE", False),
         ("pass: WREN's own writer is not this gate's business",
@@ -1124,6 +1368,225 @@ def check_privacy_agent(problems: list) -> int:
     cases += expect_equal(problems, "privacy-agent", "roster-agents.json and the hook name the same privacy agent",
                           [hook.PRIVACY_AGENT], privacy)
     return cases
+
+
+# --------------------------------------------------------------------------
+# dispatch (require-dispatch.py): a write needs POSITIVE evidence an agent ran
+# --------------------------------------------------------------------------
+
+def _ran(name: str, tool_input, text: str = "done") -> list[dict]:
+    """A main-thread call that ran: its result is an ordinary answer, as a completed agent's is."""
+    call_id = f"toolu_{next(_CALL_IDS):04d}"
+    return [{"type": "assistant", "message": {"role": "assistant", "content": [
+                {"type": "tool_use", "id": call_id, "name": name, "input": tool_input}]}},
+            {"type": "user", "toolUseResult": {"status": "completed"}, "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": call_id, "content": [{"type": "text", "text": text}]}]}}]
+
+
+def _unanswered(name: str, tool_input) -> list[dict]:
+    """A main-thread call whose result is not written yet: the agent is still running."""
+    call_id = f"toolu_{next(_CALL_IDS):04d}"
+    return [{"type": "assistant", "message": {"role": "assistant", "content": [
+        {"type": "tool_use", "id": call_id, "name": name, "input": tool_input}]}}]
+
+
+def _dispatch_cases() -> list[tuple[str, list, str]]:
+    """(label, transcript rows, the rule the gate must reach). The reviewers' reproductions included."""
+    write = _unanswered("Write", {"file_path": "C:/EA/output/x.md", "content": "x"})
+    milo = {"subagent_type": "milo", "prompt": "process it"}
+    refusal = _refused("Agent", milo, MILO_REFUSAL)
+    truncated = json.dumps(refusal[1])[:60]
+    nested = '{"type":"assistant","x":' + "[" * 100000 + "]" * 100000 + "}"
+    return [
+        ("block: the only dispatch was refused (MILO)", [_user("process it"), *refusal, *write], "solo-write"),
+        ("block: the refusal's row was cut off mid-flush, so MILO never answered",
+         [_user("process it"), refusal[0], truncated, *write], "dispatch-unverifiable"),
+        ("block: a refusal wrapped in a <tool_use_error> tag",
+         [_user("process it"), *_refused("Agent", milo, "<tool_use_error>" + MILO_REFUSAL + "</tool_use_error>",
+                                         denial_kind=None), *write], "dispatch-unverifiable"),
+        ("block: the dispatch has no result written yet", [_user("process it"), *_unanswered("Agent", milo), *write],
+         "dispatch-unverifiable"),
+        ("block: this turn's own user row did not parse, so an earlier turn's dispatch is not this one's",
+         [_user("earlier request"), *_ran("Agent", {"subagent_type": "reed"}), json.dumps(_user("write it"))[:40],
+          *write], "dispatch-unverifiable"),
+        ("block: an errored result whose text is null (no crash)",
+         [_user("write it"), {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t9",
+                                                                        "is_error": True, "content": [
+                 {"type": "text", "text": None}]}]}}, *write], "solo-write"),
+        ("block: an assistant row whose message is null (no crash)",
+         [_user("write it"), {"type": "assistant", "message": None}, *write], "solo-write"),
+        ("block: a line nested a hundred thousand levels deep (no crash)", [_user("write it"), nested, *write],
+         "dispatch-unverifiable"),
+        ("block: an earlier turn's solo ok does not carry over",
+         [_user("solo ok"), _say("ok"), _user("now write the file"), *write], "solo-write"),
+        ("block: solo ok, but a line of this turn did not parse",
+         [_user("solo ok, write it"), '{"type": "assistant", "trunc', *write], "dispatch-unverifiable"),
+        ("pass: REED ran and answered", [_user("capture it"), *_ran("Agent", {"subagent_type": "reed"}), *write],
+         "dispatched"),
+        ("pass: REED answered; a second dispatch still running does not undo that",
+         [_user("capture it"), *_ran("Agent", {"subagent_type": "reed"}),
+          *_unanswered("Agent", {"subagent_type": "page"}), *write], "dispatched"),
+        ("pass: an agent that ran and reported a failure still ran",
+         [_user("deliver it"), *_ran("Agent", {"subagent_type": "wren"}, "WREN stopped: the API returned 500"), *write],
+         "dispatched"),
+        ("pass: the user typed solo ok this turn", [_user("solo ok, just write it"), *write], "override"),
+    ]
+
+
+def check_dispatch(problems: list) -> int:
+    hook = load_hook("require-dispatch.py")
+    import _transcript as parsed
+
+    cases = 0
+    written = []
+    try:
+        for label, rows, want in _dispatch_cases():
+            path = _transcript(rows)
+            written.append(path)
+            try:
+                allowed, rule, why = hook.decide(parsed.turn_context(path), path)
+            except Exception as exc:  # noqa: BLE001
+                # swallow: a crash is reported as the failing case, which is what it is.
+                allowed, rule, why = False, f"crashed: {exc.__class__.__name__}", ""
+            cases += expect(problems, "dispatch", label, label.startswith("block"), not allowed, f"{rule}: {why}")
+            cases += expect_equal(problems, "dispatch", f"rule: {label}", want, rule, why)
+        sub = Path(tempfile.gettempdir()) / "ea-guardrails" / "subagents" / "agent-1.jsonl"
+        sub.parent.mkdir(parents=True, exist_ok=True)
+        sub.write_text(json.dumps({"type": "user", "isSidechain": True, "message": {"content": "do it"}}) + "\n",
+                       encoding="utf-8")
+        written.append(str(sub))
+        allowed, rule, _ = hook.decide(parsed.turn_context(sub), str(sub))
+        cases += expect(problems, "dispatch", "pass: a dispatched agent's own transcript", False, not allowed, rule)
+    finally:
+        for path in written:
+            Path(path).unlink(missing_ok=True)
+    return cases
+
+
+# --------------------------------------------------------------------------
+# read-only-agent (confine-read-only-agent.py): LARK runs only its list
+# --------------------------------------------------------------------------
+
+def check_read_only_agent(problems: list) -> int:
+    hook = load_hook("confine-read-only-agent.py")
+    cases = 0
+    cwd = str(REPO_ROOT)
+    for label, tool, command, want_block in [
+        ("pass: prep me for Kaed", "Bash", "python scripts/prep.py --person Kaed", False),
+        ("pass: the deeper brief", "Bash", "python scripts/prep.py --person kaed --deep --json", False),
+        ("pass: the morning screen's read", "Bash", "python scripts/register.py --json morning", False),
+        ("pass: what is owed", "Bash", "python scripts/register.py owed --person kaed", False),
+        ("pass: owed history", "Bash", "python scripts/register.py owed history A-0001", False),
+        ("pass: open questions", "Bash", "python scripts/register.py needs-input list", False),
+        ("pass: a harmless interpreter option", "Bash", "python -X utf8 scripts/prep.py --person Kaed", False),
+        ("pass: stderr folded into stdout", "Bash", "python scripts/prep.py --person Kaed 2>&1", False),
+        ("pass: PowerShell with a quoted interpreter path", "PowerShell",
+         '& "C:\\Python311\\python.exe" scripts\\prep.py --person Kaed', False),
+        ("block: a register write (add-action)", "Bash",
+         "python scripts/register.py add-action --text x --owner kaed --due 2026-10-02", True),
+        ("block: answering a question (needs-input resolve)", "Bash",
+         "python scripts/register.py needs-input resolve Q-0001 --answer yes", True),
+        ("block: keep-private", "Bash", "python scripts/register.py keep-private T-0001", True),
+        ("block: a Doc write", "Bash", "python scripts/docs_edit.py add-topic --doc X --proposal p.json", True),
+        ("block: a proposal", "Bash", "python scripts/docs_propose.py add-topic --ref T-0001", True),
+        ("block: prep redirected into a file", "Bash", "python scripts/prep.py --person Kaed > notes.txt", True),
+        ("block: prep piped into Out-File", "PowerShell", "python scripts/prep.py --person Kaed | Out-File x.txt", True),
+        ("block: a second command after prep", "Bash", "python scripts/prep.py --person Kaed; rm state/ea.db", True),
+        ("block: a write hidden in a substitution", "Bash",
+         "python scripts/prep.py --person $(python scripts/register.py add-topic --person kaed --text x)", True),
+        ("block: an environment prefix pointing the register elsewhere", "Bash",
+         "EA_DB=C:/x.db python scripts/register.py owed", True),
+        ("block: inline code", "Bash", 'python -c "import register"', True),
+        ("block: a prep.py outside this repo", "Bash", "python C:/elsewhere/scripts/prep.py", True),
+        ("block: a wrapper", "Bash", "powershell -c python scripts/prep.py", True),
+        ("block: python reading its program from stdin", "Bash", "python", True),
+        ("block: interactive python after the script", "Bash", "python -i scripts/prep.py", True),
+        ("block: register.py with no read subcommand", "Bash", "python scripts/register.py --json", True),
+        ("block: reading the database directly", "Bash", "sqlite3 state/ea.db .dump", True),
+    ]:
+        allowed, why = hook.decide(tool, {"command": command}, cwd)
+        cases += expect(problems, "read-only-agent", label, want_block, not allowed, why)
+    for label, tool, want_block in [
+        ("pass: Read", "Read", False), ("pass: Grep", "Grep", False),
+        ("block: Write", "Write", True), ("block: Edit", "Edit", True), ("block: WebFetch", "WebFetch", True),
+        ("block: an MCP tool", "mcp__gmail__send", True), ("block: dispatching another agent", "Agent", True),
+    ]:
+        allowed, why = hook.decide(tool, {"file_path": "x"}, cwd)
+        cases += expect(problems, "read-only-agent", f"tool: {label}", want_block, not allowed, why)
+    for label, payload, want in [
+        ("LARK is confined", {"agent_id": "a1", "agent_type": "lark"}, True),
+        ("LARK with this repo's prefix is confined", {"agent_id": "a1", "agent_type": "ea:lark"}, True),
+        ("a subagent the payload does not identify is confined", {"agent_id": "a1"}, True),
+        ("REED is not confined", {"agent_id": "a1", "agent_type": "reed"}, False),
+        ("the main thread is not confined", {}, False),
+    ]:
+        cases += expect_equal(problems, "read-only-agent", f"confined: {label}", want,
+                              hook.confined(payload, frozenset())[0])
+    roster = json.loads((REPO_ROOT / "context" / "roster-agents.json").read_bytes().decode("utf-8"))
+    marked = sorted(a["name"].upper() for a in roster["agents"] if a.get("read_only") is True)
+    cases += expect_equal(problems, "read-only-agent", "roster-agents.json and the hook name the same read-only agents",
+                          sorted(hook.READ_ONLY_AGENTS), marked)
+    return cases
+
+
+# --------------------------------------------------------------------------
+# failsafe (_failsafe.py, _gate.block, _audit._clean): a gate that breaks still refuses
+# --------------------------------------------------------------------------
+
+def check_failsafe(problems: list) -> int:
+    failsafe = load_hook("_failsafe.py")
+    import _audit
+    import _gate
+
+    def boom():
+        raise RuntimeError("injected fault")
+
+    def forever():
+        return forever()
+
+    def exits(code):
+        def main():
+            sys.exit(code)
+        return main
+
+    cases = 0
+    sink = io.TextIOWrapper(io.BytesIO(), encoding="utf-8")
+    with mock.patch.object(sys, "stderr", sink):
+        for label, main, import_error, want in [
+            ("block: main() raises", boom, None, 2),
+            ("block: main() recurses until RecursionError", forever, None, 2),
+            ("block: the gate could not import its helpers", lambda: 0, ImportError("no module named _gate"), 2),
+            ("block: main() returns 1", lambda: 1, None, 2),
+            ("block: main() returns False, a bool and not an exit code", lambda: False, None, 2),
+            ("block: main() returns None", lambda: None, None, 2),
+            ("block: main() calls sys.exit(1)", exits(1), None, 2),
+            ("block: main() returns 2", lambda: 2, None, 2),
+            ("pass: main() returns 0", lambda: 0, None, 0),
+            ("pass: main() calls sys.exit(0)", exits(0), None, 0),
+        ]:
+            try:
+                got = failsafe.run_gate("self-test", main, import_error)
+            except BaseException as exc:  # noqa: BLE001
+                # swallow: an exception escaping run_gate is exactly the failure being tested for.
+                got = f"escaped: {exc.__class__.__name__}"
+            cases += expect_equal(problems, "failsafe", label, want, got)
+        try:
+            refused = _gate.block(["BLOCKED: x", "  command: python scripts/privacy_review.py # \ud83d"])
+        except Exception as exc:  # noqa: BLE001
+            # swallow: a refusal that raises is the finding; recorded as the case's outcome.
+            refused = f"raised {exc.__class__.__name__}"
+    cases += expect_equal(problems, "failsafe", "block: a refusal that quotes a lone surrogate still refuses",
+                          2, refused)
+    cases += expect_equal(problems, "failsafe", "pass: a lone surrogate is replaced before it reaches the audit sinks",
+                          "x ? y", _audit._clean("x \ud83d y"))
+    return cases
+
+
+# A gate's command must turn any exit but its own 0 or 2 into a block.
+WRAPPER = re.compile(r"; s=\$\?; case \$s in 0\|2\) exit \$s;; esac; echo \"BLOCKED: [^\"]+\" >&2; exit 2$")
+BLOCKING_GATES = ("protect-architecture.py", "no-cloud.py", "require-delivery-agent.py", "require-privacy-agent.py",
+                  "require-active-agent.py", "confine-read-only-agent.py", "validate_content_rules.py",
+                  "classify-and-place.py", "require-dispatch.py", "require-approval.py")
 
 
 CHECKS = {
@@ -1141,6 +1604,9 @@ CHECKS = {
     "privacy-screen": check_privacy_screen,
     "privacy-stamp": check_privacy_stamp,
     "privacy-agent": check_privacy_agent,
+    "dispatch": check_dispatch,
+    "read-only-agent": check_read_only_agent,
+    "failsafe": check_failsafe,
 }
 
 
@@ -1170,14 +1636,14 @@ def _inherited_rule(ctx):
 
 
 def _blind_to_unreadable(real):
-    """turn_context with "could not look" collapsed into "found nothing"."""
+    """turn_context with "could not look" collapsed into "looked, and the turn was clean and empty"."""
     import _transcript
 
     def turn_context(path):
         try:
             return real(path)
         except _transcript.TranscriptUnreadable:
-            return _transcript.TurnContext()
+            return _transcript.TurnContext(found_turn_boundary=True)
     return turn_context
 
 
@@ -1192,6 +1658,70 @@ def _pre_port_typed(message: dict) -> tuple[bool, str]:
     import _transcript as t
     text = t.COMMAND_BLOCK.sub(" ", t.HARNESS_BLOCK.sub(" ", t._text_of(message))).strip()
     return bool(text), text
+
+
+def _naive_unwrap(ws, depth=0):
+    """_shell._unwrap with no launchers: the first word is the program, as the old per-gate parsers had it."""
+    import _shell
+    return [(_shell.program_name(ws[0]), list(ws[1:]))] if ws else []
+
+
+def _substring_mentions(text, stem):
+    """_shell._mentions reverted to the stem anywhere: the privacy_reviews table reads as the script."""
+    return stem.lower() in (text or "").lower()
+
+
+def _last_segment(raw):
+    """The namespace rule before the fix: keep only the last ':' segment, whatever the prefix."""
+    name = str(raw or "").split(":")[-1].strip().upper()
+    return name or None
+
+
+def _approval_ignores_deferral(real_team):
+    """team.Team before the fix: approving a phase switches it on even while it is still deferred."""
+    class Team(real_team):
+        def phase_approved(self, phase):
+            return phase is not None and self.phases[str(phase)]["approved"] is True
+    return Team
+
+
+def _eager_team_import(real):
+    """require-active-agent.decide importing team.py for every call, dispatch or not."""
+    def decide(tool, given, team):
+        import team as _team  # noqa: F401,PLC0415
+        return real(tool, given, team)
+    return decide
+
+
+def _no_doubts(real_context):
+    """TurnContext before the fix: a line that did not parse, or a missing turn start, casts no doubt."""
+    class TurnContext(real_context):
+        def doubts(self):
+            return []
+    return TurnContext
+
+
+def _ascii_names(real_categories):
+    """The privacy screen's name pattern before the fix: [A-Z][a-z]+, so an accented name is nobody."""
+    import privacy_screen
+    out = []
+    for category, pattern in real_categories:
+        if category == "individual pay":
+            pattern = re.compile(pattern.pattern.replace(privacy_screen._NAME, r"(?-i:[A-Z][a-z]+)"), pattern.flags)
+        out.append((category, pattern))
+    return tuple(out)
+
+
+def _unwrapped_settings(real):
+    """settings.json with the exit-code wrapper stripped from the SAGE-only gate."""
+    def load():
+        settings = real()
+        for group in settings["hooks"]["PreToolUse"]:
+            for entry in group["hooks"]:
+                if "require-privacy-agent.py" in entry["command"]:
+                    entry["command"] = 'python "$CLAUDE_PROJECT_DIR/.claude/hooks/require-privacy-agent.py"'
+        return settings
+    return load
 
 
 # Most gates get one mutation: the decision function forced to "allow everything".
@@ -1226,8 +1756,9 @@ MUTATIONS = [
     Mutation("rollcall", "ends a turn at a compaction summary", "module", "_transcript", "_is_real_user_turn",
              lambda real: (lambda event: True if event.get("isCompactSummary") else real(event)),
              must_fail="a compaction in the middle of a turn", wraps=True),
-    Mutation("rollcall", "counts a refused dispatch as a dispatch", "module", "_transcript", "_denied_ids",
-             lambda event: set(), must_fail="a dispatch the gate refused (MILO)"),
+    Mutation("rollcall", "counts a refused dispatch as a dispatch", "module", "_transcript", "_result_kind",
+             lambda real: (lambda event, block: "ran" if real(event, block) == "denied" else real(event, block)),
+             must_fail="a dispatch the gate refused (MILO)", wraps=True),
     Mutation("active-agent", "forced to allow", "hook", "require-active-agent.py", "decide",
              lambda *a, **k: (True, "mutated", ()), must_fail="block: MILO"),
     Mutation("active-agent", "says 'then' where Taylor's docs say 'and'", "module", "team", "not_switched_on",
@@ -1238,6 +1769,58 @@ MUTATIONS = [
              must_fail="block: a flagged proposal SAGE never reviewed"),
     Mutation("privacy-agent", "forced to allow", "hook", "require-privacy-agent.py", "decide",
              lambda *a, **k: (True, "mutated"), must_fail="block: WREN runs the reviewer"),
+    # The hardening review's rules, one aimed break each.
+    Mutation("delivery-agent", "the shared parser unwraps no launcher", "module", "_shell", "_unwrap", _naive_unwrap,
+             must_fail="block: a PowerShell assignment"),
+    Mutation("active-agent", "the shared parser unwraps no launcher", "module", "_shell", "_unwrap", _naive_unwrap,
+             must_fail="block: cmd /c with the program quoted"),
+    Mutation("privacy-agent", "matches the script's name inside a longer name", "module", "_shell", "_mentions",
+             _substring_mentions, must_fail="pass: HUGO reads the privacy_reviews table"),
+    Mutation("delivery-agent", "keeps only the last ':' segment of the caller", "hook", "_gate.py", "agent_name",
+             _last_segment, must_fail="caller: another plugin's wren is not ours"),
+    Mutation("active-agent", "keeps only the last ':' segment of a dispatch", "module", "team", "bare",
+             lambda raw: str(raw or "").split(":")[-1].strip().upper(), must_fail="block: another plugin's sage is not SAGE"),
+    Mutation("active-agent", "reads any truthy `accepted` as built", "module", "team", "is_iso_date", bool,
+             must_fail="block: a build accepted 'no'"),
+    Mutation("active-agent", "approval lifts a deferral by itself", "module", "team", "Team", _approval_ignores_deferral,
+             must_fail="block: TALLY with Phase 6 approved and built while the deferral is not lifted", wraps=True),
+    Mutation("active-agent", "imports team.py for every call", "hook", "require-active-agent.py", "decide",
+             _eager_team_import, must_fail="pass: the doctor runs while team.py cannot be imported", wraps=True),
+    Mutation("dispatch", "forced to allow", "hook", "require-dispatch.py", "decide",
+             lambda *a, **k: (True, "mutated", ""), must_fail="block: the only dispatch was refused (MILO)"),
+    Mutation("dispatch", "counts a dispatch with no result yet as one that ran", "module", "_transcript", "_call_state",
+             lambda results, use_id: results.get(use_id, "ran"), must_fail="block: the dispatch has no result written yet"),
+    Mutation("dispatch", "counts an error it cannot classify as a run", "module", "_transcript", "_result_kind",
+             lambda real: (lambda event, block: "ran" if real(event, block) == "unclear" else real(event, block)),
+             must_fail="block: a refusal wrapped in a <tool_use_error> tag", wraps=True),
+    Mutation("dispatch", "a line that did not parse casts no doubt", "module", "_transcript", "TurnContext",
+             _no_doubts, must_fail="block: this turn's own user row did not parse", wraps=True),
+    Mutation("rollcall", "reports a dispatch before weighing the doubts", "module", "_activity", "dispatch_doubts",
+             lambda ctx: [], must_fail="a dispatched turn with a line that does not parse"),
+    Mutation("rollcall", "names another plugin's agent by its last segment", "module", "_transcript", "display_name",
+             lambda raw: str(raw or "").split(":")[-1].strip().upper(),
+             must_fail="another plugin's sage is shown as OTHERPLUGIN:SAGE"),
+    Mutation("read-only-agent", "forced to allow", "hook", "confine-read-only-agent.py", "decide",
+             lambda *a, **k: (True, ""), must_fail="block: a register write (add-action)"),
+    Mutation("read-only-agent", "blind to redirects", "module", "_shell", "writes_by_redirect", lambda command: False,
+             must_fail="block: prep redirected into a file"),
+    Mutation("privacy-screen", "reads the raw characters, invisible ones included", "module", "privacy_screen",
+             "readable", lambda text: text or "", must_fail="block: a soft hyphen inside medical"),
+    Mutation("privacy-screen", "a name is ASCII only", "module", "privacy_screen", "CATEGORIES", _ascii_names,
+             must_fail="block: Zo", wraps=True),
+    Mutation("privacy-stamp", "does not read SAGE's verdict again before writing", "module", "docs_edit",
+             "recheck_privacy", lambda *a, **k: None,
+             must_fail="block: a hold SAGE records while the Doc is being read stops the write"),
+    Mutation("wiring", "a gate's exit code reaches Claude Code unwrapped", "module", __name__, "_load_settings",
+             _unwrapped_settings, must_fail="require-privacy-agent.py turns any exit but 0 or 2 into a block",
+             wraps=True),
+    Mutation("failsafe", "run_gate lets an exception escape", "hook", "_failsafe.py", "run_gate",
+             lambda hook, main, import_error=None: main(), must_fail="block: main() raises"),
+    Mutation("failsafe", "a refusal encodes strictly", "module", "_gate", "block",
+             lambda lines: (sys.stderr.buffer.write(("\n".join(lines) + "\n").encode("utf-8")), 2)[1],
+             must_fail="block: a refusal that quotes a lone surrogate still refuses"),
+    Mutation("failsafe", "a lone surrogate reaches the audit sinks", "module", "_audit", "_clean", lambda value: value,
+             must_fail="pass: a lone surrogate is replaced"),
 ]
 
 
@@ -1292,12 +1875,14 @@ def mutation_test() -> int:
             module = importlib.import_module(m.target)
             replacement = m.replacement(getattr(module, m.attr)) if m.wraps else m.replacement
             patcher = mock.patch.object(module, m.attr, replacement)
+        _forget_parsed_commands()  # the parser memoises; a mutation must not be answered from before it
         with patcher, contextlib.redirect_stdout(open(os.devnull, "w")):
             try:
                 CHECKS[m.gate](problems)
             except Exception as exc:  # noqa: BLE001
                 # swallow: a crash under mutation still counts as "detected"
                 problems.append(Problem(m.gate, f"crashed under mutation ({m.must_fail})", "", str(exc)))
+        _forget_parsed_commands()
         aimed = [p for p in problems if m.must_fail in p.label] if m.must_fail else problems
         print(f"  mutation: {m.gate:<22} {m.target}:{m.attr} {m.what} -> self-test reports "
               f"{len(problems)} failing case(s)" + ("" if aimed else "   UNDETECTED"))
@@ -1307,13 +1892,94 @@ def mutation_test() -> int:
                 print(f"           expected {problem.expected}, got {problem.got}")
         if not aimed:
             undetected.append(f"{m.gate} ({m.what})")
-    if undetected:
-        print(f"\nMUTATION TEST FAIL -- the self-test stayed green under: {'; '.join(undetected)}.")
+    print("\n  fault injection: each blocking gate, broken in a throwaway copy, run as Claude Code runs it")
+    leaks = fault_injection()
+    if undetected or leaks:
+        if undetected:
+            print(f"\nMUTATION TEST FAIL -- the self-test stayed green under: {'; '.join(undetected)}.")
+        if leaks:
+            print(f"\nMUTATION TEST FAIL -- a broken gate did not block: {'; '.join(leaks)}.")
         return 1
     gates = len({m.gate for m in MUTATIONS})
     print(f"\nMUTATION TEST OK -- all {len(MUTATIONS)} mutations across {gates} gates turn the self-test red, "
-          f"the aimed ones on the case they target.")
+          f"the aimed ones on the case they target; every one of the {len(FAULT_GATES)} blocking gates still "
+          f"blocks with a fault injected into its main(), and every gate that loads _gate.py blocks when it "
+          f"cannot be imported.")
     return 0
+
+
+def _forget_parsed_commands() -> None:
+    shell = sys.modules.get("_shell")
+    if shell is not None:
+        shell._invocations.cache_clear()
+
+
+# Every blocking PreToolUse gate, by the path settings.json runs it from.
+FAULT_GATES = {
+    "protect-architecture": ".claude/hooks/protect-architecture.py",
+    "no-cloud": ".claude/hooks/no-cloud.py",
+    "require-delivery-agent": ".claude/hooks/require-delivery-agent.py",
+    "require-privacy-agent": ".claude/hooks/require-privacy-agent.py",
+    "require-active-agent": ".claude/hooks/require-active-agent.py",
+    "confine-read-only-agent": ".claude/hooks/confine-read-only-agent.py",
+    "validate_content_rules": "scripts/validate_content_rules.py",
+    "classify-and-place": ".claude/hooks/classify-and-place.py",
+    "require-dispatch": ".claude/hooks/require-dispatch.py",
+    "require-approval": ".claude/hooks/require-approval.py",
+}
+INJECTED = "def main() -> int:\n    raise RuntimeError('injected fault')\n"
+
+
+def fault_injection() -> list[str]:
+    """Each blocking gate, broken on purpose in a throwaway copy, must exit 2: never 0, never 1.
+
+    Three runs per gate: clean (the control, exit 0 on a harmless command, so the 2 that
+    follows is the fault's and not a refusal), main() raising, and _gate.py unimportable.
+    """
+    leaks: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "ea"
+        for part in (".claude", "context", "scripts"):
+            shutil.copytree(REPO_ROOT / part, root / part, ignore=shutil.ignore_patterns("__pycache__"))
+        (root / "state").mkdir()
+        env = {k: v for k, v in os.environ.items() if k not in ("EA_DB", "EA_FIXTURE_MODE", "EA_AGENT")}
+        env.update(EA_ROOT=str(root), CLAUDE_PROJECT_DIR=str(root), PYTHONIOENCODING="utf-8",
+                   PYTHONDONTWRITEBYTECODE="1")
+        payload = json.dumps({"session_id": "fault-injection", "transcript_path": str(root / "t.jsonl"),
+                              "cwd": str(root), "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                              "tool_input": {"command": "echo hi"}}).encode("utf-8")
+
+        def run(rel: str) -> tuple[int, str]:
+            args = ["--stdin-payload"] if rel.endswith("validate_content_rules.py") else []
+            done = subprocess.run([sys.executable, str(root / rel), *args], input=payload, capture_output=True,
+                                  env=env, timeout=120)
+            lines = done.stderr.decode("utf-8", "replace").strip().splitlines()
+            return done.returncode, (lines[0] if lines else "")[:110]
+
+        def report(name: str, fault: str, code: int, first: str, want: int) -> None:
+            mark = "ok " if code == want else "LEAK"
+            print(f"    {mark} exit {code}  {name:<24} {fault:<24} {first}")
+            if code != want:
+                leaks.append(f"{name} ({fault}: exit {code})")
+
+        for name, rel in FAULT_GATES.items():
+            report(name, "clean (control)", *run(rel), want=0)
+            path = root / rel
+            original = path.read_bytes()
+            text = original.decode("utf-8")
+            marker = re.search(r"def main\(\) -> int:\r?\n", text)
+            if marker is None:
+                leaks.append(f"{name} (no main() to inject a fault into)")
+                continue
+            path.write_bytes((text[:marker.start()] + INJECTED + text[marker.end():]).encode("utf-8"))
+            report(name, "main() raises", *run(rel), want=2)
+            path.write_bytes(original)
+        gate = root / ".claude" / "hooks" / "_gate.py"
+        gate.write_bytes(b"def broken(:\n")
+        for name, rel in FAULT_GATES.items():
+            if rel.startswith(".claude/hooks/"):
+                report(name, "_gate.py will not import", *run(rel), want=2)
+    return leaks
 
 
 def main() -> int:

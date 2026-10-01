@@ -144,9 +144,11 @@ def _report(findings: list[Finding], *, blocking: bool) -> int:
     if not findings:
         return 0
     label = "BLOCKED" if blocking else "FAIL"
-    print(f"{label} -- {len(findings)} content-rule issue(s):\n", file=sys.stderr)
-    for finding in findings:
-        print(f"  {finding}", file=sys.stderr)
+    lines = [f"{label} -- {len(findings)} content-rule issue(s):", ""] + [f"  {finding}" for finding in findings]
+    # Bytes with errors="replace": stderr is cp1252 when piped on Windows, and a path it
+    # cannot encode would turn this refusal into a crash, which in hook mode lets the write through.
+    sys.stderr.buffer.write(("\n".join(lines) + "\n").encode("utf-8", errors="replace"))
+    sys.stderr.flush()
     return 2 if blocking else 1
 
 
@@ -162,7 +164,7 @@ def main() -> int:
         raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
         try:
             payload = json.loads(raw)
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, RecursionError):
             # Content quality, not safety: every safety gate already fails closed on
             # the same payload. Say so and allow; silence here would be the bug.
             print("validate_content_rules.py: hook payload unreadable; content rules "
@@ -197,4 +199,10 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    if "--stdin-payload" in sys.argv:
+        # Hook mode is a PreToolUse gate: any crash must refuse, never exit 1 (which lets the write through).
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude", "hooks"))
+        from _failsafe import run_gate  # noqa: E402
+
+        sys.exit(run_gate("validate_content_rules", main))
     sys.exit(main())
