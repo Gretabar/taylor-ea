@@ -1,5 +1,7 @@
 # NAME, for Taylor
 
+NAME stands for whatever you call this system: set it once with `python scripts\overlay.py name <Name>`, then type `/<name>` (or `/NAME`, which still works).
+
 NAME is the executive-assistant system Mike built for you, the same kind of system he runs for himself (STEVIE), scoped to exactly what Phase 1 of your own blueprint asks for: a running document for each of your six 1:1s and one canonical Action Register, kept straight without you having to hold all of it in your head. You'll see REED, PAGE, WREN, HUGO, SAGE and LARK named in what it does now, out of a team of thirteen. You don't need to track which does what to use it, it's here so you know what's actually happening when something runs. The full team is under Your team below.
 
 ## The five commands you'll use
@@ -27,18 +29,23 @@ Neither one means you did anything wrong. Both mean tell Mike.
 - `/morning` shows LAST TICK in red. The background check that keeps your Docs and the register in sync hasn't run in a while, something's stopped.
 - After a capture (an `/add`, or anything through `/NAME` that writes), the bottom of the screen names the team: `TEAM  |  REED -> PAGE -> WREN  (3 dispatched)`. A read-only command like `/owe` or `/morning` shows `TEAM  |  read only, nothing written` instead, that's normal, nothing got written so there's nothing to name. Watch for a framed block headed `TEAM: NONE - THIS TURN RAN SOLO`: if that appears after a capture, something got written without the team, tell Mike.
 
+## One more status line to know
+
+BUILD MODE until a time means Mike is building on your laptop, for that window only. Outside it, nothing can change the system's own code, not even Mike, from inside a session.
+
 ## Talk to it the way you'd talk to a person
 
 - **Done.** Say so ("mark the Casey bonus item done") or type Done in its Status cell yourself. NAME picks up either one.
 - **Move it.** Give the new date ("push Casey's bonus structure to Friday October 9"). The old date stays in history, ask `/owe history <ref>` to see how many times it's moved.
 - **Wrong person.** Correct it the way you'd correct a person ("that one's Kaed, not Cade"). It fixes the one you meant. It does not create a second Kaed.
+- **Teach it.** Say a preference in one plain sentence ("answer first, then the detail") and it's in effect from your next session. Anything that would set a price, package, discount, minimum spend, policy or sending permission gets asked about once, as a single question, and only your yes adopts it. "Show me what you've learned" lists where everything stands; "forget" and a few matching words retires one.
 - **Change a rule.** Say `architecture change ok` plus the change itself. It updates and adds a dated line to your Architecture Change Log. Ask "show me all architecture changes" anytime to see it.
 
 ## Your team
 
 NAME never does the work itself. It hands every job to the right specialist, thirteen of them in all. You don't need to track any of this to use the five commands above, it's here for when you want to know who's actually doing the work, or when NAME tells you someone isn't on yet.
 
-**On now.** REED keeps the Action Register honest and never invents an owner or a deadline. PAGE reads your running Docs and works out where something belongs. WREN is the only one that actually writes into them, and reads every write back before calling it done. HUGO gets things unstuck when a token expires or something looks wrong. SAGE is the privacy check: it only steps in when something personal is headed for a Doc your managers can read, things like health, family, leave, discipline, or one person's pay, and when it does, it can hold the item and offer to keep it in your private notes instead. LARK answers "prep me for Kaed" (or anyone else on your six) with a short, read-only briefing: what you owe Kaed, what Kaed owes you, what's queued for your next 1:1. The 7am version that lands without asking is Phase 3 and isn't on yet.
+**On now.** REED keeps the Action Register honest and never invents an owner or a deadline. PAGE reads your running Docs and works out where something belongs. WREN is the only one that actually writes into them, and reads every write back before calling it done. HUGO gets things unstuck when a token expires or something looks wrong. SAGE is the privacy check: it only steps in when something personal is headed for a Doc your managers can read, things like health, family, leave, discipline, or one person's pay, and when it does, it can hold the item and offer to keep it in your private notes instead. LARK answers "prep me for Kaed" (or anyone else on your six) with a short, read-only briefing, your part first: what you owe Kaed and what you need to answer or decide, then what Kaed owes you, what's queued for your next 1:1, what the Doc carries forward and what your last 1:1 recorded, then the next 1:1 time and the Doc link. The 7am version that lands without asking is Phase 3 and isn't on yet.
 
 **Waiting on a phase.** MILO (meetings and transcripts) and RUTH (professional documentation, drafted privately, you decide if it's coaching or discipline, not RUTH) are both Phase 2. ATLAS (projects and company knowledge) is Phase 4. CLEO (reservation and corporate-event replies) is Phase 5. JUNE (calendar) is Phase 7.
 
@@ -56,6 +63,10 @@ Switching a phase on, or adding PENN, is your call, the same phase gate as every
 ## Where the register lives
 
 Everything NAME tracks sits in one small file on this machine, not a spreadsheet you maintain and not a second task list. The Doc is what you and your managers actually read. The register underneath remembers what the Doc can't: how many times a deadline moved, or who owned something before it got reassigned.
+
+## Keeping it current
+
+Updating is a terminal job, not something you ask NAME to do: `git pull` is refused from inside a session, on purpose. From a terminal: go to your folder, run `git pull`, then `python scripts\overlay.py init`. Reload VS Code afterward (Ctrl+Shift+P, then "Developer: Reload Window"). None of your own decisions live in the files `git pull` touches, so updating never overwrites anything of yours.
 
 ## The honest privacy note
 

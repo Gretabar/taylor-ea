@@ -1,5 +1,7 @@
 # NAME
 
+NAME stands for whatever you call this system: set it once with `python scripts\overlay.py name <Name>`, then type `/<name>` (or `/NAME`, which still works).
+
 NAME keeps your six running 1:1 documents and one Action Register straight, so you're not holding all of it in your head or opening six Docs to check what's still open. Phase 1 only, for now: no email goes out, no calendar changes happen, no transcript gets read. Just your running Docs and what you owe each other.
 
 ## The five commands

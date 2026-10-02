@@ -3,7 +3,7 @@
 Eight habits for working with NAME well. None of them are complicated, most of them just mean typing less than you're used to.
 
 **1. Never paste the architecture.**
-NAME already knows your rules (they live in `CLAUDE.md`) and opens the relevant section of your architecture only when a task needs it. (It is deliberately NOT loaded whole every session.)
+NAME already knows your rules: the shipped ones live in `CLAUDE.md`, your own live in `state/taylor/rules.md`, and both load at the start of every session. It opens the relevant section of your architecture only when a task needs it. (It is deliberately NOT loaded whole every session.)
 Why this matters: every Claude seat at Greta draws on one company-wide monthly budget. Anthropic's notices show it ran out on September 23 and, after it was raised, hit 90% again by September 30. Everything in a chat gets re-read on every reply, so a pasted 277-paragraph document multiplies in cost with every message that follows it.
 Before: "Read the complete architecture and audit every GRETA bot, workflow and data store."
 After: "/NAME run the Phase 1 audit"
@@ -36,10 +36,13 @@ Two different things can say no, and each takes a different fix.
 Before: "Add the Christmas lights item to the YYZ weekly meeting Doc." (refused, that Doc isn't one of your linked Docs yet, weekly meetings are a Phase 2 item)
 After: send Mike the exact refusal, it's a Phase 2 gap, not a wording problem
 
-**7. Make a forever rule an architecture change, once.**
-Say the phrase and the actual change together, and it updates its own rules and logs them. No detour through Mike, unless the change needs new code, in which case it tells you plainly that it's queued, not pretending it's already live.
-Before: "From now on, always skip Strategic Priorities unless there's something new." (buried inside an unrelated /add)
-After: "architecture change ok: skip Strategic Priorities unless something is new"
+**7. A preference and a rule are not the same thing.**
+A preference, how you like things presented or routed, just needs saying in one plain sentence: it's learned from your next session, no phrase required.
+Before: "From now on, answer me first, then give the detail."
+After: nothing extra to type, say it plainly and it applies from next session
+A rule is different: anything that would set a price, package, discount, minimum spend, policy or sending permission gets asked about once, and only your yes adopts it (a change to the system's own behaviour instead takes the architecture change ok phrase from rule 6).
+Before: "The corporate package is $45 now."
+After: noted as a rule-candidate, one question raised, your yes adopts it
 
 **8. Default model is fine for `/add` and `/owe`.**
 Routine captures and lookups don't need the strongest model available. Save that for anything touching the architecture itself.

@@ -3,7 +3,7 @@
 This replaces the opener that stalled claude.ai before, paste it as your very first message to NAME in VS Code, once Mike's handed the folder over.
 
 ```
-Read CLAUDE.md, then context/architecture/blueprint.md sections 1, 3, 4, 12 (Phase 1 and G1-G5)
+Read CLAUDE.md, then state/taylor/blueprint.md sections 1, 3, 4, 12 (Phase 1 and G1-G5)
 and the Phase 1 line in section 13. Do not summarise it back to me.
 Then run the Phase 1 audit this system can actually perform, using the scripts, not memory:
   python scripts/ea_doctor.py
