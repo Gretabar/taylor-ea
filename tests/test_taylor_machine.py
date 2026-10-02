@@ -559,6 +559,9 @@ class DeepPrep(unittest.TestCase):
     def setUp(self):
         import docs_read
 
+        live = own_overlay()  # a live register's Doc, so not fixture mode, whoever runs the suite
+        live.start()
+        self.addCleanup(live.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.db = Path(self.tmp.name) / "prep.db"
@@ -606,7 +609,8 @@ class DeepPrep(unittest.TestCase):
         shown = self.brief()
         order = ["You owe Kaed", "You need to answer or decide", "Kaed owes you", "Topics for the next 1:1",
                  "Carried forward in the Doc", "Last 1:1", "Next 1:1:", "Doc: https://docs.google.com/document/d/DOC1"]
-        at = [shown.find(heading) for heading in order]
+        lines = shown.splitlines()
+        at = [next((i for i, line in enumerate(lines) if line.startswith(heading)), -1) for heading in order]
         self.assertNotIn(-1, at, shown)
         self.assertEqual(at, sorted(at), shown)
         self.assertLess(shown.find(self.mine), shown.find("Kaed owes you"))

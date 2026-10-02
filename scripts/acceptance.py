@@ -1022,13 +1022,14 @@ def lark_prep(ev: Evidence) -> dict:
                 found.setdefault(heading, set()).add(line.split()[0])
         return found
 
+    # Headings start a line; a topic line may itself say "in the Doc: ...", so never search the text.
     headings = ["You owe Kaed", "You need to answer or decide", "Kaed owes you", "Topics for the next 1:1",
-                "Last 1:1", "Next 1:1:", "Doc: "]
-    at = [brief.out.find(h) for h in headings]
+                "Carried forward in the Doc", "Last 1:1", "Next 1:1:", "Doc: "]
+    printed = brief.out.splitlines()
+    at = [next((i for i, line in enumerate(printed) if line.startswith(h)), -1) for h in headings]
     in_order = -1 not in at and at == sorted(at)
     listed = sections_of(brief.out)
-    ev.add(f"- section order as printed: {', '.join(repr(h) for h, i in sorted(zip(headings, at), key=lambda x: x[1]))}"
-           f"; in blueprint s.10's order: {in_order}")
+    ev.add(f"- headings by the line they start: {dict(zip(headings, at))}; in blueprint s.10's order: {in_order}")
     ok = (brief.code == 0 and deep.code == 0 and brief.out == deep.out and db_before == db_after
           and files_unchanged(files_before, files_after) and doc_same and bool(you_owe) and bool(to_answer)
           and bool(they_owe) and doc["url"] in brief.out and in_order

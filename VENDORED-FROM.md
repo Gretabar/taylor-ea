@@ -75,7 +75,7 @@ Vendored 2026-10-01.
 | `scripts/docs_propose.py` | `-` | `-` | `-` | `d8c65a8a6179340d3865c0afe855e4f36b3e095eed3ad49f2d315c2822ff2d98` | NEW |
 | `scripts/docs_edit.py` | `-` | `-` | `-` | `61c53a700a24f2d467da2056457ca0175d79a8e4506c60ca05ccb87f93ed4cce` | NEW |
 | `scripts/docs_reconcile.py` | `-` | `-` | `-` | `8ae92c49a91167132497725c67a1d29f304c73eaad1f9b7a0bee4054362d74e7` | NEW |
-| `scripts/acceptance.py` | `-` | `-` | `-` | `62c0c273ba0dca063b68125a281c6715269a1a6868ede321910f176a26e3d1f0` | NEW |
+| `scripts/acceptance.py` | `-` | `-` | `-` | `eceb85613a87ea335eb0dfa3d0153ffac206a9b336c853c8c890282d83d842a7` | NEW |
 | `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `d48bbf97bb791f75ac304a1f124426889d59d49f36b156c9ce98f697830e000e` | PORT |
 | `scripts/run_ea_tick.ps1` | `PIPER:scripts/run_cadence_tick.ps1` | `untracked` | `d7233a6d93db66768bebbb3ca61591de41356a88a56a0ad92ddbd621d6ddccb2` | `712efb60739d2511a96ce97a291504bd8f3828e8412d284a87d6e4ab2488de75` | PORT |
 | `scripts/schedule_ea_tick.ps1` | `PIPER:scripts/schedule_cadence_tick.ps1` | `untracked` | `6189ca47717bb64d4bb7521b69f166330ddac8939e4a05dd57936f9d2e88ca7e` | `38035578522913ed67b347a8a52aee9f79ac874e46c3511debba4c61158415a0` | PORT |
@@ -146,7 +146,7 @@ Vendored 2026-10-01.
 | `scripts/build_mode.ps1` | `-` | `-` | `-` | `2964580964ccd9d2c4e8f0075d6df3a3dab544fb1cdbfd1911e2fa48d1013191` | NEW |
 | `.claude/hooks/session-start.py` | `-` | `-` | `-` | `e3cc566efd50af8c823dd87d50c0f29b85a7dd280798b7c0cc14152a21403daf` | NEW |
 | `.claude/hooks/require-lessons-agent.py` | `-` | `-` | `-` | `7b918827bfb59d09d8930ec47e04f9ff9096f3ca374f6ac898c57342b6ad32c4` | NEW |
-| `tests/test_taylor_machine.py` | `-` | `-` | `-` | `65c31c55d3fad825942f1f2f29fcb13a9970900bbacfc525046e1a7127ddd8c3` | NEW |
+| `tests/test_taylor_machine.py` | `-` | `-` | `-` | `4bdbe99c06dbc8b1b095f2f779de6f36cf15faa67e82f0632ee28ebf444921f7` | NEW |
 <!-- end of manifest table -->
 
 ## What changed, and why
