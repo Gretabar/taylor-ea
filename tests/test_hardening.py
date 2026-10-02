@@ -28,7 +28,7 @@ sys.path.insert(0, str(ROOT / ".claude" / "hooks"))
 LONE = "\ud83d"  # a lone high surrogate; json.dumps writes it as the escape \ud83d
 GATES = ("protect-architecture.py", "no-cloud.py", "require-delivery-agent.py", "require-privacy-agent.py",
          "require-active-agent.py", "confine-read-only-agent.py", "classify-and-place.py", "require-dispatch.py",
-         "require-approval.py")
+         "require-approval.py", "require-lessons-agent.py")
 
 
 def repo_copy(tmp: str, name: str = "ea") -> Path:
@@ -146,7 +146,7 @@ class FailClosed(CopyPerClass):
         settings = json.loads((ROOT / ".claude" / "settings.json").read_bytes().decode("utf-8"))
         commands = [entry["command"] for group in settings["hooks"]["PreToolUse"] for entry in group["hooks"]
                     if "announce-dispatch.py" not in entry["command"]]
-        self.assertEqual(len(commands), 10)
+        self.assertEqual(len(commands), 11)
         with tempfile.TemporaryDirectory() as tmp:
             stub_root = Path(tmp)
             for folder in (".claude/hooks", "scripts"):

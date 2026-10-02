@@ -19,8 +19,9 @@
   "classes": {
     "private": {
       "definition": "Taylor's own private material: personal context, anything the blueprint says must not reach a shared record (s.2).",
-      "examples": ["private notes Taylor asks to keep", "anything about availability reasons (Phase 7)"],
-      "allowed_roots": ["state/private"],
+      "examples": ["private notes Taylor asks to keep", "anything about availability reasons (Phase 7)",
+                   "Taylor's overlay (state/taylor/): his rules, his phase and deviation decisions, his Architecture Change Log, his living blueprint, his identity overrides, his lessons and the proposals written for him"],
+      "allowed_roots": ["state/private", "state/taylor", "state/taylor-fixtures"],
       "forbidden_roots": ["output", "state/proposals", "state/records"],
       "git": "never",
       "egress": "never in Phase 1"

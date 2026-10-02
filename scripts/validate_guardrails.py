@@ -13,10 +13,13 @@ GATES COVERED (the plan's list, plus the ones that keep them honest):
   doc-allowlist         docs_edit.py refuses unregistered Docs, live Docs in fixture
                         mode, live Docs before D-1 is approved, and any Doc whose
                         documents.get returned no revisionId
-  protect-architecture  layer A (rules text needs Taylor's phrase) and layer B (code
-                        and permissions only on the build machine), the marker, and
-                        the override's turn boundary
-  no-cloud              push commands, hosts off the allowlist, sync roots
+  protect-architecture  layer A (Taylor's overlay needs his phrase, a proposal needs
+                        none) and layer B (upstream defaults and code only in build
+                        mode, which the phrase never opens), the frozen v1 blueprint,
+                        the lessons store, both markers and build_mode.ps1, the
+                        override's turn boundary, and when a marker means build mode
+  no-cloud              push commands (behind git options, wrappers and push aliases
+                        too), hosts off the allowlist, sync roots
   classify-and-place    declarations, including the JSON key form, and placement
   approval              what is egress (and that docs_edit.py is NOT), the
                         self-draft exemption, and the hash binding
@@ -27,10 +30,23 @@ GATES COVERED (the plan's list, plus the ones that keep them honest):
                         quiet line, a solo write gets the SOLO block, a dispatch gets
                         the TEAM line, an unreadable turn gets UNVERIFIED; the status
                         line and docs/FOR-TAYLOR.md agree with it; a dispatch a gate
-                        refused is not counted as one
+                        refused is not counted as one; a lesson write is a write;
+                        BUILD MODE opens the roll call and closes the status line
+                        while it is on, and only then
   active-agent          only a switched-on agent is dispatched; every switched-off one
                         answers with exactly the lines docs/FOR-TAYLOR.md quotes;
-                        non-roster agents, workflows and the claude CLI are refused
+                        non-roster agents, workflows and the claude CLI are refused;
+                        in build mode, and only then, a non-roster dev agent goes
+                        through, and a switched-off roster agent still does not
+  lessons-agent         scripts/lessons.py records, answers and forgets only inside
+                        REED; list and context are reads anyone may run
+  lessons-screen        a price, package, minimum spend, discount, policy or sending
+                        permission is held as a rule-candidate whatever kind REED
+                        asked for, asks Taylor once, and is never loaded into a
+                        session; a preference passes and is
+  overlay               the shipped defaults decide nothing for Taylor; his decisions
+                        win the merge; a malformed one is unreadable, never "no
+                        decision"; one about a deviation upstream dropped is reported
   privacy-screen        every personal-sensitivity category is flagged, and the
                         near-misses ("manager bonus structure", "Christmas lights") pass
   privacy-stamp         docs_edit.py refuses a flagged proposal without SAGE's approval
@@ -49,6 +65,11 @@ WHAT IS NOT COVERED, stated: this drives the pure decision function inside each
 gate. It does not prove Claude Code invokes the hook (wiring proves it is
 configured, not that it fires) and it cannot test a model. The by-hand session
 table in INSTALL.md is the live half.
+
+EVERY CHECK READS THE SHIPPED DECISIONS. The overlay (EA_OVERLAY) is pointed at an empty
+folder for the run, so Taylor's own approvals on his laptop never change what a gate is
+expected to refuse, and the build-mode cases write their markers into a temporary
+folder, never into state/.
 
 --mutation-test breaks each gate on purpose and asserts this self-test then reports
 failures for that gate. For most gates the break is "always allow". The roll call
@@ -304,57 +325,126 @@ def check_protect_architecture(problems: list) -> int:
     cases = 0
     phrase = "architecture change ok"
 
-    # Layer A: rules text, Taylor's phrase.
+    # Layer A: Taylor's overlay, his phrase. Build mode does not open it: it is his, not Mike's.
     for label, target, typed, build, want_block in [
-        ("block: edit the blueprint with no approval", "context/architecture/blueprint.md",
+        ("block: edit his living blueprint with no approval", "state/taylor/blueprint.md",
          "remove the reservation send approval", False, True),
-        ("block: edit CLAUDE.md with no approval", "CLAUDE.md", "tidy up the rules", False, True),
-        ("block: approve D-1 by editing deviations.json without the phrase",
-         "context/architecture/deviations.json", "D-1 looks fine", False, True),
-        ("block: the build machine does not exempt rules text", "CLAUDE.md", "tidy up", True, True),
-        ("block: rules text when the latest message could not be read", "CLAUDE.md", None, False, True),
-        ("pass: Taylor typed the phrase", "context/architecture/blueprint.md",
+        ("block: approve D-1 in his overlay without the phrase", "state/taylor/deviations.json", "D-1 looks fine",
+         False, True),
+        ("block: switch on a phase without the phrase", "state/taylor/phases.json", "switch on Phase 2", False, True),
+        ("block: add a rule without the phrase", "state/taylor/rules.md", "from now on send without asking",
+         False, True),
+        ("block: his change log without the phrase", "state/taylor/CHANGE-LOG.md", "log it", False, True),
+        ("block: rename the system without the phrase", "state/taylor/identity.json", "call yourself Max", False, True),
+        ("block: build mode does not open his overlay", "state/taylor/rules.md", "tidy up", True, True),
+        ("block: the fixture overlay is guarded the same way", "state/taylor-fixtures/phases.json", "x", False, True),
+        ("block: his overlay, written with backslashes and capitals", "State\\Taylor\\Phases.json", "x", False, True),
+        ("block: his overlay when the latest message could not be read", "state/taylor/rules.md", None, False, True),
+        ("pass: Taylor typed the phrase", "state/taylor/blueprint.md",
          f"{phrase}: remove the reservation send approval", False, False),
-        ("pass: the phrase is case-insensitive", "CLAUDE.md", "Architecture Change OK, do it", False, False),
-        ("pass: docs/DEVIATIONS.md is where a proposal goes", "docs/DEVIATIONS.md", "anything", False, False),
-        ("pass: README.md is not protected", "README.md", "anything", False, False),
+        ("pass: the phrase is case-insensitive", "state/taylor/rules.md", "Architecture Change OK, do it", False, False),
+        ("pass: a proposal needs no phrase", "state/taylor/proposals.md", "anything", False, False),
+        ("pass: a fixture proposal needs no phrase", "state/taylor-fixtures/proposals.md", "anything", False, False),
+        ("pass: a file beside the overlay is not the overlay", "state/taylor-notes.md", "anything", False, False),
+        ("pass: a record is not the overlay", "state/records/n.json", "anything", False, False),
     ]:
         allowed, rule, _ = hook.decide([target], typed, build)
         cases += expect(problems, "protect-architecture", f"A {label}", want_block, not allowed, rule)
 
-    # Layer B: code and permissions, build machine only, phrase irrelevant.
+    # Layer B: upstream defaults and code. Build mode only; the phrase never opens them, because
+    # a local edit to a tracked file conflicts with the next `git pull` or is erased by it.
     for label, target, typed, build, want_block in [
+        ("block: CLAUDE.md on Taylor's machine, even with the phrase", "CLAUDE.md", f"{phrase}: tidy up", False, True),
+        ("block: approve D-1 in the tracked deviations.json, even with the phrase",
+         "context/architecture/deviations.json", f"{phrase}: approve D-1", False, True),
+        ("block: switch on a phase in the tracked phases.json", "context/architecture/phases.json", phrase, False,
+         True),
+        ("block: the tracked change log template", "context/architecture/CHANGE-LOG.md", phrase, False, True),
+        ("block: docs/DEVIATIONS.md, now an upstream file", "docs/DEVIATIONS.md", phrase, False, True),
+        ("block: README.md", "README.md", "anything", False, True),
+        ("block: requirements.txt", "requirements.txt", "anything", False, True),
         ("block: edit require-approval.py on Taylor's machine", ".claude/hooks/require-approval.py", phrase, False, True),
         ("block: edit settings.json on Taylor's machine", ".claude/settings.json", phrase, False, True),
+        ("block: settings.local.json, which can change permissions too", ".claude/settings.local.json", phrase,
+         False, True),
         ("block: edit a script on Taylor's machine", "scripts/docs_edit.py", phrase, False, True),
         ("block: grant an agent a tool on Taylor's machine", ".claude/agents/reed.md", phrase, False, True),
         ("block: widen the network allowlist on Taylor's machine", "context/systems.json", phrase, False, True),
+        ("block: a new file under context/, which a later pull could collide with", "context/notes.md", phrase,
+         False, True),
         ("block: `git pull` rewrites the tree on Taylor's machine", "*", phrase, False, True),
-        ("pass: edit require-approval.py on the build machine", ".claude/hooks/require-approval.py", "", True, False),
-        ("pass: edit a script on the build machine", "scripts/docs_edit.py", "", True, False),
-        ("block: create the build marker, even on the build machine", "state/BUILD_MACHINE", phrase, True, True),
-        ("block: create the build marker on Taylor's machine", "state/BUILD_MACHINE", phrase, False, True),
+        ("pass: CLAUDE.md in build mode", "CLAUDE.md", "", True, False),
+        ("pass: the tracked deviations.json in build mode", "context/architecture/deviations.json", "", True, False),
+        ("pass: docs/DEVIATIONS.md in build mode", "docs/DEVIATIONS.md", "", True, False),
+        ("pass: edit require-approval.py in build mode", ".claude/hooks/require-approval.py", "", True, False),
+        ("pass: edit a script in build mode", "scripts/docs_edit.py", "", True, False),
+        ("pass: output/ is never protected", "output/brief.md", "", False, False),
     ]:
         allowed, rule, _ = hook.decide([target], typed, build)
         cases += expect(problems, "protect-architecture", f"B {label}", want_block, not allowed, rule)
+    allowed, rule, _ = hook.decide(["state/taylor/rules.md", "CLAUDE.md"], f"{phrase}: add it", False)
+    cases += expect(problems, "protect-architecture", "B block: one command writing his rules AND CLAUDE.md is "
+                    "refused whole", True, not allowed, rule)
 
-    # Shell write detection, both shells.
+    # Frozen whatever is typed and whatever the mode: the v1 baseline, the lessons store
+    # (lessons.py writes it, and only REED runs that), and the two markers.
+    for label, target, build, rule_id in [
+        ("the v1 baseline blueprint, with the phrase", "context/architecture/blueprint.md", False,
+         "blueprint-baseline"),
+        ("the v1 baseline blueprint, even in build mode", "context/architecture/blueprint.md", True,
+         "blueprint-baseline"),
+        ("lessons.json, with the phrase", "state/taylor/lessons.json", False, "lessons-store"),
+        ("lessons.json, even in build mode", "state/taylor/lessons.json", True, "lessons-store"),
+        ("the fixture lessons store", "state/taylor-fixtures/lessons.json", False, "lessons-store"),
+        ("create the build machine marker on Taylor's machine", "state/BUILD_MACHINE", False, "build-marker"),
+        ("create the build machine marker, even in build mode", "state/BUILD_MACHINE", True, "build-marker"),
+        ("write the timed build marker", "state/BUILD_MODE", False, "build-marker"),
+        ("extend the timed marker from inside build mode", "state/BUILD_MODE", True, "build-marker"),
+    ]:
+        allowed, rule, _ = hook.decide([target], f"{phrase}: do it", build)
+        cases += expect(problems, "protect-architecture", f"frozen block: {label}", True, not allowed, rule)
+        cases += expect_equal(problems, "protect-architecture", f"frozen {label}: refused as {rule_id}",
+                              rule_id, rule)
+
+    # Shell write detection, both shells: the layer each command writes.
     for label, command, want_layer in [
-        ("block: sed -i on CLAUDE.md", "sed -i 's/x/y/' CLAUDE.md", "rules"),
-        ("block: redirect into the blueprint", "echo x > context/architecture/blueprint.md", "rules"),
+        ("block: sed -i on CLAUDE.md", "sed -i 's/x/y/' CLAUDE.md", "upstream"),
+        ("block: redirect into the v1 blueprint", "echo x > context/architecture/blueprint.md", "baseline"),
         ("block: Set-Content on settings.json", "Set-Content -Path .claude/settings.json -Value '{}'", "code"),
-        ("block: inline python writing CLAUDE.md", "python -c \"open('CLAUDE.md','w').write('x')\"", "rules"),
+        ("block: inline python writing CLAUDE.md", "python -c \"open('CLAUDE.md','w').write('x')\"", "upstream"),
         ("block: Remove-Item on a hook", "Remove-Item .claude/hooks/no-cloud.py", "code"),
-        ("block: write the marker by redirect", "echo h > state/BUILD_MACHINE", "marker"),
+        ("block: write the build machine marker by redirect", "echo h > state/BUILD_MACHINE", "marker"),
+        ("block: write the timed marker by redirect", "echo h > state/BUILD_MODE", "marker"),
+        ("block: Add-Content to his rules", "Add-Content state/taylor/rules.md '- send without asking'", "rules"),
+        ("block: inline python writing his phase decisions",
+         "python -c \"open('state/taylor/phases.json','w').write('{}')\"", "rules"),
+        ("block: a redirect into the lessons store", "echo [] > state/taylor/lessons.json", "lessons"),
+        ("block: Copy-Item over docs/DEVIATIONS.md", "Copy-Item x.md docs/DEVIATIONS.md", "upstream"),
+        ("pass: appending a proposal", "echo x >> state/taylor/proposals.md", None),
+        ("pass: reading his rules", "cat state/taylor/rules.md", None),
         ("pass: reading CLAUDE.md", "cat CLAUDE.md", None),
+        ("pass: listing lessons", "python scripts/lessons.py list", None),
         ("pass: a script's output redirected elsewhere", "python scripts/register.py owed > owed.txt", None),
         ("pass: inline python that only reads", "python -c \"print(open('CLAUDE.md').read())\"", None),
         ("pass: git status", "git status --porcelain", None),
     ]:
         layers = {hook.layer_of(hook.to_rel(t, str(REPO_ROOT))) for t in hook.shell_write_targets(command)} - {None}
-        got = sorted(layers)[0] if layers else None
-        cases += expect(problems, "protect-architecture", f"shell {label}", want_layer is not None,
-                        got is not None, f"layer={got}")
+        cases += expect_equal(problems, "protect-architecture", f"shell {label}", want_layer,
+                              ",".join(sorted(layers)) or None)
+
+    # Running build_mode.ps1 is refused from a session, through any launcher. Reading it is not.
+    for label, command, want_block in [
+        ("block: build_mode.ps1 on, as INSTALL.md runs it",
+         "powershell -ExecutionPolicy Bypass -File scripts\\build_mode.ps1 on -Hours 4", True),
+        ("block: build_mode.ps1 off through the call operator", "& .\\scripts\\build_mode.ps1 off", True),
+        ("block: build_mode.ps1 inside powershell -Command", 'powershell -Command "& scripts/build_mode.ps1 on"', True),
+        ("block: build_mode.ps1 from pwsh -File with a full path",
+         "pwsh -NoProfile -File C:/EA/scripts/build_mode.ps1 status", True),
+        ("pass: reading build_mode.ps1", "Get-Content scripts\\build_mode.ps1", False),
+        ("pass: searching build_mode.ps1", "grep -n Hours scripts/build_mode.ps1", False),
+    ]:
+        cases += expect(problems, "protect-architecture", f"switch {label}", want_block,
+                        hook.switches_build_mode(command))
 
     # The override's turn boundary: only the LATEST typed turn counts.
     stale = _transcript([
@@ -376,30 +466,63 @@ def check_protect_architecture(problems: list) -> int:
             ("pass: the phrase typed as a slash-command argument in the latest turn", fresh, False),
         ]:
             typed = hook.latest_typed_text(path)
-            allowed, rule, _ = hook.decide(["CLAUDE.md"], typed, False)
+            allowed, rule, _ = hook.decide(["state/taylor/rules.md"], typed, False)
             cases += expect(problems, "protect-architecture", f"turn {label}", want_block, not allowed,
                             f"typed={typed!r}")
     finally:
         for path in (stale, fresh, reminder, sidechain):
             os.unlink(path)
 
-    # The marker must name THIS host: a marker carried on a USB copy opens nothing.
-    with tempfile.TemporaryDirectory() as tmp:
-        marker = Path(tmp) / "BUILD_MACHINE"
-        original = gate.BUILD_MARKER
-        try:
-            gate.BUILD_MARKER = marker
-            cases += expect(problems, "protect-architecture", "marker: absent means not the build machine",
-                            True, not gate.is_build_machine())
-            marker.write_text("SOME-OTHER-LAPTOP\n", encoding="utf-8")
-            cases += expect(problems, "protect-architecture", "marker: copied from another host opens nothing",
-                            True, not gate.is_build_machine())
-            marker.write_text(socket.gethostname() + "\n", encoding="utf-8")
-            cases += expect(problems, "protect-architecture", "marker: naming this host is the build machine",
-                            False, not gate.is_build_machine())
-        finally:
-            gate.BUILD_MARKER = original
+    # When the markers mean build mode (_health.build_mode: what _gate.is_build_machine, the
+    # status line, the roll call and the doctor all read). Anything doubtful is OFF.
+    for label, machine, timed, want_on in _marker_cases():
+        on, gate_on = _build_mode_with(machine, timed, lambda: (_health_module().build_mode().on,
+                                                                gate.is_build_machine()))
+        cases += expect_equal(problems, "protect-architecture", f"marker {label}", want_on, on)
+        cases += expect_equal(problems, "protect-architecture", f"marker {label}: _gate agrees", want_on, gate_on)
     return cases
+
+
+def _health_module():
+    import _health
+    return _health
+
+
+def _utc(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _marker_cases() -> list[tuple[str, str | None, str | None, bool]]:
+    """(label, state/BUILD_MACHINE text, state/BUILD_MODE text, build mode on?)."""
+    host = socket.gethostname()
+    now = datetime.now(timezone.utc)
+    return [
+        ("off: no marker at all", None, None, False),
+        ("off: a build machine marker copied from another host", "SOME-OTHER-LAPTOP\n", None, False),
+        ("on: the build machine marker names this host", f"{host}\n", None, True),
+        ("on: a timed marker for this host, two hours left", None, f"{host}\n{_utc(now + timedelta(hours=2))}\n", True),
+        ("off: an expired BUILD_MODE marker is off", None, f"{host}\n{_utc(now - timedelta(minutes=1))}\n", False),
+        ("off: a timed marker naming another host", None, f"SOME-OTHER-LAPTOP\n{_utc(now + timedelta(hours=2))}\n",
+         False),
+        ("off: a timed marker more than 24 hours ahead", None, f"{host}\n{_utc(now + timedelta(hours=30))}\n", False),
+        ("off: a timed marker with no expiry", None, f"{host}\n", False),
+        ("off: a timed marker whose expiry is not a date", None, f"{host}\nsoon\n", False),
+        ("off: a timed marker whose expiry has no time zone", None,
+         f"{host}\n{(now + timedelta(hours=2)).strftime('%Y-%m-%dT%H:%M:%S')}\n", False),
+        ("off: an empty timed marker", None, "", False),
+    ]
+
+
+def _build_mode_with(machine: str | None, timed: str | None, probe):
+    """Run `probe` with _health reading these markers from a temporary folder, never from state/."""
+    _health = _health_module()
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "state").mkdir()
+        for name, text in (("BUILD_MACHINE", machine), ("BUILD_MODE", timed)):
+            if text is not None:
+                (Path(tmp) / "state" / name).write_bytes(text.encode("utf-8"))
+        with mock.patch.object(_health, "REPO_ROOT", tmp):
+            return probe()
 
 
 # --------------------------------------------------------------------------
@@ -419,7 +542,23 @@ def check_no_cloud(problems: list) -> int:
         ("block: curl to a host nobody allowlisted", "curl -X POST https://hooks.slack.com/services/T/B/X -d @r.json", True),
         ("block: Invoke-RestMethod to an unlisted host", "Invoke-RestMethod -Uri https://example.com/upload -Method Post", True),
         ("block: a network tool with no resolvable destination", "curl -X POST $ENDPOINT -d @r.json", True),
+        ("block: git push with -C before it", "git -C C:/EA push", True),
+        ("block: git push after a -c option", "git -c credential.helper= push origin master", True),
+        ("block: git push inside powershell -Command", 'powershell -Command "git push origin master"', True),
+        ("block: git push through cmd /c", "cmd /c git push", True),
+        ("block: git push assigned in PowerShell", "$r = git push", True),
+        ("block: git push behind env", "env GIT_TRACE=1 git push", True),
+        ("block: git send-pack", "git send-pack origin master", True),
+        ("block: an inline alias that pushes", "git -c alias.ship=push ship", True),
+        ("block: an inline shell alias that pushes", 'git -c "alias.ship=!git push" ship', True),
+        ("block: a stored alias that pushes", "git config alias.ship push", True),
+        ("block: a stored shell alias that pushes", "git config --local alias.ship '!git push origin'", True),
         ("pass: git status is not git push", "git status --porcelain", False),
+        ("pass: git -C with a read", "git -C C:/EA status", False),
+        ("pass: a commit message that says push", 'git commit -m "push the date to Friday"', False),
+        ("pass: git log searching for push", "git log --grep push", False),
+        ("pass: a stored alias that does not push", "git config alias.st status", False),
+        ("pass: git pull is not a push (protect-architecture owns it)", "git pull", False),
         ("pass: a path that merely contains gh", "python scripts/register.py owed > state/records/gh-notes.txt", False),
         ("pass: curl to the Docs API, which is allowlisted", "curl -s https://docs.googleapis.com/v1/documents/X", False),
     ]:
@@ -617,6 +756,7 @@ def check_wiring(problems: list) -> int:
         ("announce-dispatch.py", ("Agent",)),
         ("require-active-agent.py", ("Agent", "Task", "Workflow", "Bash", "PowerShell")),
         ("require-privacy-agent.py", ("Bash", "PowerShell")),
+        ("require-lessons-agent.py", ("Bash", "PowerShell")),
         ("confine-read-only-agent.py", ("Bash", "PowerShell", "Write", "Edit", "MultiEdit", "NotebookEdit",
                                         "WebFetch", "mcp__", "Agent", "Workflow")),
     ]:
@@ -636,7 +776,7 @@ def check_wiring(problems: list) -> int:
             if gate:
                 cases += expect(problems, "wiring", f"{gate} turns any exit but 0 or 2 into a block", True,
                                 bool(WRAPPER.search(command)), command[-120:])
-    for event in ("PostToolUse", "Stop"):
+    for event in ("PostToolUse", "Stop", "SessionStart"):
         for group in settings.get("hooks", {}).get(event, []):
             for entry in group.get("hooks", []):
                 cases += expect(problems, "wiring", f"the {event} hook never blocks", False,
@@ -654,6 +794,8 @@ def check_wiring(problems: list) -> int:
         cases += expect(problems, "wiring", f"{filename} is wired", True, filename in commands)
     cases += expect(problems, "wiring", "the status line is wired", True,
                     "statusline-ea.py" in json.dumps(settings.get("statusLine", {})))
+    cases += expect(problems, "wiring", "session-start.py (Taylor's rules and lessons) is wired to SessionStart", True,
+                    "session-start.py" in json.dumps(settings.get("hooks", {}).get("SessionStart", [])))
     return cases
 
 
@@ -908,6 +1050,14 @@ def check_rollcall(problems: list) -> int:
          '& python scripts\\privacy_review.py --hold state\\proposals\\p.json --reason "stays private"', "write"),
         ("privacy_review imported inline", 'python -c "import privacy_review"', "write"),
         ("register.py keep-private (Taylor's private notes)", "python scripts/register.py keep-private T-0007", "write"),
+        ("lessons.py record (a lesson every later session loads)",
+         'python scripts/lessons.py record --kind preference --text "Answer first" --said "answer first"', "write"),
+        ("lessons.py answer (Taylor's yes adopts a rule)", "python scripts/lessons.py answer L-0004 --yes", "write"),
+        ("lessons.py forget", "python scripts/lessons.py forget L-0002", "write"),
+        ("lessons imported inline", 'python -c "import lessons"', "write"),
+        ("a lessons.py subcommand nobody classified counts as a write", "python scripts/lessons.py purge", "write"),
+        ("lessons.py list (show me what you've learned)", "python scripts/lessons.py list --all", "read"),
+        ("lessons.py context (what a session loads)", "python scripts/lessons.py context", "read"),
         ("prep.py (LARK's read-only prep)", "python scripts/prep.py --person Kaed --deep", "read"),
         ("team.py --agent (what a switched-off agent answers)", "python scripts/team.py --agent MILO", "read"),
         ("privacy_screen.py --text (a wording check)", 'python scripts/privacy_screen.py --text "Kaed raise"', "read"),
@@ -962,6 +1112,41 @@ def check_rollcall(problems: list) -> int:
                               "TEAM  |  REED  (1 dispatched)", hook.team_block(mixed))
     finally:
         os.unlink(mixed)
+
+    # BUILD MODE opens the roll call and closes the status line while it is on, and is gone
+    # when it is off: an expired marker shows nothing, because it opens nothing.
+    host = socket.gethostname()
+    now = datetime.now(timezone.utc)
+    quiet = _transcript(owe)
+
+    def both() -> tuple[str, str]:
+        with mock.patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(b"{}"), encoding="utf-8")):
+            line = bar.status(False)
+        return hook.rollcall({"transcript_path": quiet}), line
+
+    try:
+        for label, machine, timed, opens_with, shown in [
+            ("off", None, None, None, None),
+            ("an expired marker", None, f"{host}\n{_utc(now - timedelta(minutes=5))}\n", None, None),
+            ("a timed marker", None, f"{host}\n{_utc(now + timedelta(hours=3))}\n",
+             f"{hook.RULE}\nBUILD MODE until ", "BUILD MODE until "),
+            ("the build machine", f"{host}\n", None, "BUILD MACHINE  |", "BUILD MACHINE"),
+        ]:
+            full, line = _build_mode_with(machine, timed, both)
+            if opens_with:
+                cases += expect_equal(problems, "rollcall", f"the roll call opens with build mode: {label}",
+                                      True, full.startswith(opens_with), full[:90])
+                cases += expect_equal(problems, "rollcall", f"the status line closes with build mode: {label}",
+                                      True, line.rsplit("  ", 1)[-1].startswith(shown), line)
+            else:
+                cases += expect_equal(problems, "rollcall", f"no build mode in the roll call: {label}",
+                                      False, "BUILD" in full, full[:90])
+                cases += expect_equal(problems, "rollcall", f"no build mode on the status line: {label}",
+                                      False, "BUILD" in line, line)
+            cases += expect_equal(problems, "rollcall", f"the team line still closes the roll call: {label}",
+                                  True, full.endswith(hook.READ_ONLY_LINE), full[-90:])
+    finally:
+        os.unlink(quiet)
 
     # Taylor's guide quotes the roll call. If either side changes alone, he is told to
     # look for a line that never appears.
@@ -1096,6 +1281,27 @@ def check_active_agent(problems: list) -> int:
     ]:
         allowed, rule, _ = hook.decide(tool, given, shipped)
         cases += expect(problems, "active-agent", label, want_block, not allowed, rule)
+
+    # Build mode: Mike's dev agents go through, and only then. Taylor's switched-off agents never do.
+    reviewer = {"subagent_type": "pr-review-toolkit:code-reviewer"}
+    for label, tool, given, build, want_block in [
+        ("block: Explore outside build mode", "Agent", {"subagent_type": "Explore"}, False, True),
+        ("block: a plugin reviewer outside build mode", "Agent", reviewer, False, True),
+        ("pass: Explore in build mode", "Agent", {"subagent_type": "Explore"}, True, False),
+        ("pass: Plan in build mode", "Agent", {"subagent_type": "Plan"}, True, False),
+        ("pass: general-purpose (no subagent_type) in build mode", "Agent", {"prompt": "look"}, True, False),
+        ("pass: a plugin reviewer in build mode", "Agent", reviewer, True, False),
+        ("block: MILO stays refused in build mode", "Agent", {"subagent_type": "milo"}, True, True),
+        ("block: TALLY stays refused in build mode", "Agent", {"subagent_type": "tally"}, True, True),
+        ("block: PENN stays refused in build mode", "Agent", {"subagent_type": "penn"}, True, True),
+        ("block: a plugin-qualified switched-off agent stays refused in build mode", "Agent",
+         {"subagent_type": "ea:milo"}, True, True),
+        ("block: a Workflow stays refused in build mode", "Workflow", {"name": "deep-research"}, True, True),
+        ("block: claude -p stays refused in build mode", "Bash", {"command": "claude -p hi"}, True, True),
+        ("pass: REED in build mode, as always", "Agent", {"subagent_type": "reed"}, True, False),
+    ]:
+        allowed, rule, _ = hook.decide(tool, given, shipped, build_mode=build)
+        cases += expect(problems, "active-agent", f"build mode {label}", want_block, not allowed, rule)
     cases += expect_equal(problems, "active-agent", "a named switched-off agent from the CLI gets its own lines",
                           SWITCH_ON_SPEC["TALLY"], lines_for("Bash", {"command": "claude --agent tally"}))
 
@@ -1371,6 +1577,175 @@ def check_privacy_agent(problems: list) -> int:
 
 
 # --------------------------------------------------------------------------
+# lessons-agent (REED), lessons-screen (G2), overlay (Taylor's decisions)
+# --------------------------------------------------------------------------
+
+def check_lessons_agent(problems: list) -> int:
+    hook = load_hook("require-lessons-agent.py")
+    cases = 0
+    record = 'python scripts/lessons.py record --kind preference --text "Answer first" --said "answer first"'
+    for label, command, caller, want_block in [
+        ("block: the orchestrator records a lesson", record, "MAIN", True),
+        ("block: PAGE records a lesson", record, "PAGE", True),
+        ("block: SAGE records a lesson", record, "SAGE", True),
+        ("block: a subagent the payload does not identify", record, None, True),
+        ("block: the orchestrator answers a rule-candidate for Taylor", "python scripts/lessons.py answer L-0004 --yes",
+         "MAIN", True),
+        ("block: the orchestrator forgets a lesson", "python scripts/lessons.py forget L-0002", "MAIN", True),
+        ("block: no subcommand at all", "python scripts/lessons.py", "MAIN", True),
+        ("block: a subcommand nobody classified", "python scripts/lessons.py purge", "MAIN", True),
+        ("block: through PowerShell with a full interpreter path",
+         "& C:\\Python311\\python.exe scripts\\lessons.py record --kind routing --text x", "MAIN", True),
+        ("block: wrapped in powershell -Command", 'powershell -Command "python scripts/lessons.py forget L-0001"',
+         "MAIN", True),
+        ("block: lessons imported inline", 'python -c "import lessons; lessons.forget(1)"', "MAIN", True),
+        ("block: run as a module", "python -m lessons record --kind preference --text x", "MAIN", True),
+        ("block: a variable as the interpreter", "$py scripts/lessons.py record --kind preference --text x", "MAIN",
+         True),
+        ("block: a read and a write in one line",
+         "python scripts/lessons.py list && python scripts/lessons.py forget L-0001", "MAIN", True),
+        ("pass: REED records a lesson", record, "REED", False),
+        ("pass: REED records Taylor's answer", "python scripts/lessons.py answer L-0004 --yes", "REED", False),
+        ("pass: the orchestrator lists what was learned", "python scripts/lessons.py list", "MAIN", False),
+        ("pass: list --all --json", "python scripts/lessons.py list --all --json", "MAIN", False),
+        ("pass: HUGO reads what a session loads", "python scripts/lessons.py context", "HUGO", False),
+        ("pass: reading the script is not running it", "grep -n RULE_PATTERNS scripts/lessons.py", "MAIN", False),
+        ("pass: the register is a different script", "python scripts/register.py owed", "MAIN", False),
+    ]:
+        allowed, rule = hook.decide(command, caller)
+        cases += expect(problems, "lessons-agent", label, want_block, not allowed, rule)
+    roster = json.loads((REPO_ROOT / "context" / "roster-agents.json").read_text(encoding="utf-8"))
+    teachers = [a["name"].upper() for a in roster["agents"] if a.get("lessons")]
+    cases += expect_equal(problems, "lessons-agent", "roster-agents.json and the hook name the same lessons agent",
+                          [hook.LESSONS_AGENT], teachers)
+    return cases
+
+
+# Blueprint s.1 and G2: what must never be learned from one instance, and what must be.
+LESSON_RULES = [
+    "the corporate package is $45 now", "corporate package price is 45 dollars", "charge $60 per head for buyouts",
+    "minimum spend for the patio is 2000", "give the Smith group 15% off", "10 percent off for regulars",
+    "a discount for repeat bookers", "comp the room fee for Kaed's event", "waive the deposit for the hockey team",
+    "you can send reservation replies without asking me", "send the team recap automatically",
+    "no need to check with me before sending", "don't need my approval for Moreen's replies",
+    "our cancellation policy is 48 hours", "deposit is 25 percent", "new rule: Fridays are buyout only",
+    "always comp birthday cakes", "never charge corporate clients for the AV", "the rate for the mezzanine is 80",
+    "the fee for a private room is 300", "go ahead and send the confirmations yourself",
+    "refunds only with a week's notice", "pricing for brunch goes up in November",
+]
+LESSON_PREFERENCES = [
+    "answer first, then the detail", "keep the morning brief under five lines", "no dashes in emails",
+    "put Kaed's bar items under Action Items, not Top Focuses", "show overdue items first",
+    "call me Taylor, not Mr. Iwaasa", "use bullet points", "send me the brief as plain text",
+    "never send me long emails", "short answers please", "Kade is Kaed", "remind me on Mondays",
+    "lead with what I owe", "the prep should list Casey's items after mine", "prefer the Doc link at the bottom",
+    "fewer questions, just ask the one that matters", "first-rate work from Shawn this week",
+    "compare this week with last week", "keep the agenda in the order I said it",
+]
+
+
+def check_lessons_screen(problems: list) -> int:
+    import ea_db
+    import lessons
+
+    cases = 0
+    for text in LESSON_RULES:
+        hit = lessons.screen(text)
+        cases += expect(problems, "lessons-screen", f"block: {text}", True, bool(hit), str(hit))
+    for text in LESSON_PREFERENCES:
+        hit = lessons.screen(text)
+        cases += expect(problems, "lessons-screen", f"pass: {text}", False, bool(hit), str(hit))
+
+    # What REED asks for does not decide it; the screen does. A held rule asks Taylor once and
+    # is never loaded into a session; a preference is, from the next one.
+    with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"EA_OVERLAY": tmp}):
+        conn = ea_db.connect(Path(tmp) / "lessons.db")
+        try:
+            ea_db.migrate(conn)
+            said = "the corporate package is $45 now"
+            price = lessons.record(conn, kind="preference", text="The corporate package is $45 now", said=said)
+            again = lessons.record(conn, kind="preference", text="The corporate package is $45 now", said=said)
+            asked = conn.execute("SELECT COUNT(*) FROM needs_input WHERE source_kind = 'lesson'").fetchone()[0]
+            style = lessons.record(conn, kind="preference", text="Answer first, then the detail", said="answer first")
+            loaded = lessons.context()
+        finally:
+            conn.close()
+    cases += expect(problems, "lessons-screen", "block: a price recorded as a preference is not in effect", True,
+                    not price["active"] and price["kind"] == "rule-candidate", json.dumps(price)[:160])
+    cases += expect_equal(problems, "lessons-screen", "a price Taylor said himself asks him exactly once, "
+                          "and saying it again asks nothing more", (1, price["ref"]), (asked, again["ref"]))
+    cases += expect(problems, "lessons-screen", "block: the held price is not loaded into a session", True,
+                    "$45" not in loaded, loaded[:160])
+    cases += expect(problems, "lessons-screen", "pass: a preference is in effect from the next session", False,
+                    not (style["active"] and "Answer first, then the detail" in loaded), loaded[:160])
+    return cases
+
+
+def check_overlay(problems: list) -> int:
+    import overlay
+
+    cases = expect_equal(problems, "overlay", "the shipped files decide nothing for Taylor (no legacy decision)",
+                         [], overlay.legacy_decisions(REPO_ROOT))
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp) / "repo"
+        shutil.copytree(REPO_ROOT / "context", base / "context", ignore=shutil.ignore_patterns("__pycache__"))
+        mine = Path(tmp) / "taylor"
+        mine.mkdir()
+
+        def with_overlay(files: dict, probe):
+            for name in ("phases.json", "deviations.json", "identity.json"):
+                (mine / name).unlink(missing_ok=True)
+            for name, data in files.items():
+                (mine / name).write_bytes(data if isinstance(data, bytes) else json.dumps(data).encode("utf-8"))
+            with mock.patch.dict(os.environ, {"EA_OVERLAY": str(mine)}):
+                try:
+                    return probe()
+                except overlay.OverlayUnreadable as exc:
+                    return f"unreadable: {exc}"
+
+        phase_2 = lambda: overlay.phases(base)["phases"]["2"]["approved"]  # noqa: E731
+        d_1 = lambda: overlay.deviations(base)["deviations"]["D-1"]["status"]  # noqa: E731
+        for label, files, probe, want in [
+            ("pass: Taylor's approval of Phase 2 in his overlay is in effect",
+             {"phases.json": {"phases": {"2": {"approved": True}}}}, phase_2, True),
+            ("pass: Taylor's approval of D-1 in his overlay is in effect",
+             {"deviations.json": {"deviations": {"D-1": {"status": "approved"}}}}, d_1, "approved"),
+            ("pass: Taylor's name for the system is in effect",
+             {"identity.json": {"system_name": "Max"}}, lambda: overlay.identity(base)["system_name"], "Max"),
+            ("block: an approval that is not true or false is unreadable",
+             {"phases.json": {"phases": {"2": {"approved": "yes"}}}}, phase_2, "unreadable"),
+            ("block: a phase outside 1 to 7 is unreadable",
+             {"phases.json": {"phases": {"9": {"approved": True}}}}, phase_2, "unreadable"),
+            ("block: a deviation status outside the four is unreadable",
+             {"deviations.json": {"deviations": {"D-1": {"status": "maybe"}}}}, d_1, "unreadable"),
+            ("block: an overlay file that is not JSON is unreadable", {"phases.json": b"{"}, phase_2, "unreadable"),
+            ("block: an empty name is unreadable", {"identity.json": {"system_name": "  "}},
+             lambda: overlay.identity(base)["system_name"], "unreadable"),
+            ("a decision about a deviation upstream dropped is kept out and reported",
+             {"deviations.json": {"deviations": {"D-99": {"status": "approved"}}}},
+             lambda: ("D-99" in overlay.deviations(base)["deviations"], overlay.orphaned_decisions(base)),
+             (False, ["D-99"])),
+        ]:
+            got = with_overlay(files, probe)
+            if want == "unreadable":
+                got = "unreadable" if str(got).startswith("unreadable") else got
+            cases += expect_equal(problems, "overlay", label, want, got)
+
+        tracked = base / "context" / "architecture" / "phases.json"
+        gate = json.loads(tracked.read_bytes().decode("utf-8"))
+        gate["phases"]["2"]["approved"] = True
+        tracked.write_bytes(json.dumps(gate).encode("utf-8"))
+        legacy = with_overlay({}, lambda: overlay.legacy_decisions(base))
+        cases += expect(problems, "overlay", "block: a tracked approval of Phase 2 is reported as a legacy decision",
+                        True, any(entry[:2] == ("phases.json", "2") for entry in legacy), str(legacy))
+        cases += expect_equal(problems, "overlay", "a legacy tracked approval is honoured until migrated", True,
+                              with_overlay({}, phase_2))
+        cases += expect_equal(problems, "overlay", "Taylor's own decision beats a legacy tracked one", False,
+                              with_overlay({"phases.json": {"phases": {"2": {"approved": False}}}}, phase_2))
+    return cases
+
+
+# --------------------------------------------------------------------------
 # dispatch (require-dispatch.py): a write needs POSITIVE evidence an agent ran
 # --------------------------------------------------------------------------
 
@@ -1586,7 +1961,8 @@ def check_failsafe(problems: list) -> int:
 WRAPPER = re.compile(r"; s=\$\?; case \$s in 0\|2\) exit \$s;; esac; echo \"BLOCKED: [^\"]+\" >&2; exit 2$")
 BLOCKING_GATES = ("protect-architecture.py", "no-cloud.py", "require-delivery-agent.py", "require-privacy-agent.py",
                   "require-active-agent.py", "confine-read-only-agent.py", "validate_content_rules.py",
-                  "classify-and-place.py", "require-dispatch.py", "require-approval.py")
+                  "classify-and-place.py", "require-dispatch.py", "require-approval.py",
+                  "require-lessons-agent.py")
 
 
 CHECKS = {
@@ -1604,6 +1980,9 @@ CHECKS = {
     "privacy-screen": check_privacy_screen,
     "privacy-stamp": check_privacy_stamp,
     "privacy-agent": check_privacy_agent,
+    "lessons-agent": check_lessons_agent,
+    "lessons-screen": check_lessons_screen,
+    "overlay": check_overlay,
     "dispatch": check_dispatch,
     "read-only-agent": check_read_only_agent,
     "failsafe": check_failsafe,
@@ -1687,10 +2066,67 @@ def _approval_ignores_deferral(real_team):
 
 def _eager_team_import(real):
     """require-active-agent.decide importing team.py for every call, dispatch or not."""
-    def decide(tool, given, team):
+    def decide(tool, given, team, build_mode=False):
         import team as _team  # noqa: F401,PLC0415
-        return real(tool, given, team)
+        return real(tool, given, team, build_mode)
     return decide
+
+
+def _relayer(moved: str, to: str | None):
+    """layer_of() with one layer read as another: the break each layer's own cases must catch."""
+    def wrap(real):
+        return lambda rel: to if real(rel) == moved else real(rel)
+    return wrap
+
+
+def _proposals_guarded(real):
+    """layer_of() before proposals.md was opened: a proposal needs the phrase like a rule."""
+    return lambda rel: "rules" if real(rel) is None and str(rel).lower().endswith("taylor/proposals.md") else real(rel)
+
+
+def _expiry_ignored(real):
+    """_health.build_mode() that never reads the expiry: a timed marker naming this host is on."""
+    import _health
+
+    def build_mode(now=None):
+        mode = real(now)
+        lines = _health._marker_lines("BUILD_MODE")
+        if not mode.on and lines and lines[0].lower() == socket.gethostname().strip().lower():
+            return _health.BuildMode(True, "timed")
+        return mode
+    return build_mode
+
+
+def _build_mode_opens_everything(real):
+    """require-active-agent.decide with build mode as a master key, roster agents included."""
+    def decide(tool, given, team, build_mode=False):
+        return (True, "mutated", ()) if build_mode else real(tool, given, team, build_mode)
+    return decide
+
+
+def _build_mode_ignored(real):
+    """require-active-agent.decide that never hears about build mode."""
+    def decide(tool, given, team, build_mode=False):
+        return real(tool, given, team, False)
+    return decide
+
+
+def _hidden_forms_read(real):
+    """_shell.script_args() with every hidden form (inline code, a variable) dropped, so it reads as a read."""
+    return lambda command, stem: [args for args in real(command, stem) if args is not None]
+
+
+def _tracked_phases_only(real):
+    """overlay.phases() before the overlay: the tracked file is the whole answer."""
+    import overlay
+    return lambda base=None: overlay._read_json(overlay.tracked("phases.json", base), required=True)
+
+
+def _status_line_without_build(real):
+    """statusline-ea.render() that drops the build-mode segment."""
+    def render(label, kind, names, hours, color, build=""):
+        return real(label, kind, names, hours, color)
+    return render
 
 
 def _no_doubts(real_context):
@@ -1821,6 +2257,63 @@ MUTATIONS = [
              must_fail="block: a refusal that quotes a lone surrogate still refuses"),
     Mutation("failsafe", "a lone surrogate reaches the audit sinks", "module", "_audit", "_clean", lambda value: value,
              must_fail="pass: a lone surrogate is replaced"),
+    # Part 2: the overlay, build mode and lessons, one aimed break each.
+    Mutation("protect-architecture", "the phrase opens the upstream defaults", "hook", "protect-architecture.py",
+             "layer_of", _relayer("upstream", "rules"), must_fail="B block: CLAUDE.md on Taylor's machine, even with",
+             wraps=True),
+    Mutation("protect-architecture", "build mode opens Taylor's overlay", "hook", "protect-architecture.py",
+             "layer_of", _relayer("rules", "code"), must_fail="A block: build mode does not open his overlay",
+             wraps=True),
+    Mutation("protect-architecture", "the v1 baseline is just another upstream file", "hook",
+             "protect-architecture.py", "layer_of", _relayer("baseline", "upstream"),
+             must_fail="frozen block: the v1 baseline blueprint, even in build mode", wraps=True),
+    Mutation("protect-architecture", "the lessons store is part of his overlay", "hook", "protect-architecture.py",
+             "layer_of", _relayer("lessons", "rules"), must_fail="frozen block: lessons.json, with the phrase",
+             wraps=True),
+    Mutation("protect-architecture", "the markers are code", "hook", "protect-architecture.py", "layer_of",
+             _relayer("marker", "code"), must_fail="frozen block: extend the timed marker from inside build mode",
+             wraps=True),
+    Mutation("protect-architecture", "a proposal needs the phrase", "hook", "protect-architecture.py", "layer_of",
+             _proposals_guarded, must_fail="A pass: a proposal needs no phrase", wraps=True),
+    Mutation("protect-architecture", "running build_mode.ps1 goes unseen", "hook", "protect-architecture.py",
+             "switches_build_mode", lambda command: False,
+             must_fail="switch block: build_mode.ps1 on, as INSTALL.md runs it"),
+    Mutation("protect-architecture", "an expired marker still counts", "module", "_health", "build_mode",
+             _expiry_ignored, must_fail="marker off: an expired BUILD_MODE marker is off", wraps=True),
+    Mutation("no-cloud", "git's own options hide the push", "hook", "no-cloud.py", "git_egress",
+             lambda args: bool(args) and args[0].lower() in {"push", "send-pack", "send-email"},
+             must_fail="block: git push with -C before it"),
+    Mutation("no-cloud", "an inline alias is not a push", "hook", "no-cloud.py", "GIT_PUSH_ALIAS", re.compile(r"(?!)"),
+             must_fail="block: an inline alias that pushes"),
+    Mutation("no-cloud", "a stored alias is not a push", "hook", "no-cloud.py", "GIT_ALIAS_NAME", re.compile(r"(?!)"),
+             must_fail="block: a stored alias that pushes"),
+    Mutation("active-agent", "build mode opens a switched-off roster agent", "hook", "require-active-agent.py",
+             "decide", _build_mode_opens_everything, must_fail="build mode block: MILO stays refused in build mode",
+             wraps=True),
+    Mutation("active-agent", "build mode is never heard", "hook", "require-active-agent.py", "decide",
+             _build_mode_ignored, must_fail="build mode pass: Explore in build mode", wraps=True),
+    Mutation("lessons-agent", "forced to allow", "hook", "require-lessons-agent.py", "decide",
+             lambda *a, **k: (True, "mutated"), must_fail="block: the orchestrator records a lesson"),
+    Mutation("lessons-agent", "a hidden form reads as a read", "hook", "require-lessons-agent.py", "script_args",
+             _hidden_forms_read, must_fail="block: lessons imported inline", wraps=True),
+    Mutation("lessons-screen", "passes everything", "module", "lessons", "screen", lambda text: None,
+             must_fail="block: the corporate package is $45 now"),
+    Mutation("lessons-screen", "a repeat is a new subject", "module", "lessons", "same_subject",
+             lambda *a, **k: False, must_fail="a price Taylor said himself asks him exactly once"),
+    Mutation("lessons-screen", "a held rule is loaded like one in effect", "module", "lessons", "ACTIVE",
+             frozenset({"active", "adopted", "candidate", "asked"}),
+             must_fail="block: the held price is not loaded into a session"),
+    Mutation("overlay", "Taylor's decisions are not read", "module", "overlay", "phases", _tracked_phases_only,
+             must_fail="pass: Taylor's approval of Phase 2 in his overlay is in effect", wraps=True),
+    Mutation("overlay", "a legacy decision goes unreported", "module", "overlay", "legacy_decisions",
+             lambda base=None: [], must_fail="block: a tracked approval of Phase 2 is reported"),
+    Mutation("rollcall", "blind to lesson writes", "module", "_activity", "WATCHED",
+             lambda real: real - {"lessons"}, must_fail="write: lessons.py record", wraps=True),
+    Mutation("rollcall", "no BUILD MODE banner", "hook", "team-rollcall.py", "build_banner", lambda: "",
+             must_fail="the roll call opens with build mode: a timed marker"),
+    Mutation("rollcall", "the status line drops build mode", "hook", "statusline-ea.py", "render",
+             _status_line_without_build, must_fail="the status line closes with build mode: a timed marker",
+             wraps=True),
 ]
 
 
@@ -1926,6 +2419,7 @@ FAULT_GATES = {
     "classify-and-place": ".claude/hooks/classify-and-place.py",
     "require-dispatch": ".claude/hooks/require-dispatch.py",
     "require-approval": ".claude/hooks/require-approval.py",
+    "require-lessons-agent": ".claude/hooks/require-lessons-agent.py",
 }
 INJECTED = "def main() -> int:\n    raise RuntimeError('injected fault')\n"
 
@@ -1991,12 +2485,16 @@ def main() -> int:
     parser.add_argument("--only", nargs="*", choices=sorted(CHECKS), help="run only these gates")
     args = parser.parse_args()
     VERBOSE = args.verbose
-    if args.mutation_test:
-        return mutation_test()
-    if not args.self_test:
+    if not (args.mutation_test or args.self_test):
         parser.print_help()
         return 2
-    return self_test(args.only or list(CHECKS))
+    # The shipped decisions, never Taylor's: an empty overlay for the whole run.
+    pinned = tempfile.mkdtemp(prefix="ea-guardrails-overlay-")
+    os.environ["EA_OVERLAY"] = pinned
+    try:
+        return mutation_test() if args.mutation_test else self_test(args.only or list(CHECKS))
+    finally:
+        shutil.rmtree(pinned, ignore_errors=True)
 
 
 if __name__ == "__main__":

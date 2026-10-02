@@ -2,12 +2,13 @@
 
 Your blueprint (section 11) says a material change from the approved architecture is explained and
 approved by you before it is built. Each entry below says what the blueprint asks for, what was
-built instead, why, and what changes if you say no. The current status of each one is kept in
-`context/architecture/deviations.json`, which only changes when you approve or reject in your own
-words.
+built instead, why, and what changes if you say no. Your decision on each one is kept on your
+laptop in `state/taylor/deviations.json`, which only changes when you approve or reject in your own
+words, and which updates never touch.
 
-New proposals land here too. When you ask for something that would change how the system works,
-it writes the proposal here and changes nothing until you approve.
+New proposals written on your laptop go to `state/taylor/proposals.md`. When you ask for something
+that would change how the system works, it writes the proposal there and changes nothing until you
+approve.
 
 ## D-1: the Action Register is a small database on this laptop
 
@@ -53,13 +54,14 @@ What the blueprint says: "Prep me for Kaed" is Phase 7 (section 10, "Preparation
 intelligence"), and the daily brief's meeting prep is Phase 3 (test P3.7: link the working Doc
 and show only what you owe; a deeper briefing on request).
 
-What was built: when you ask to be prepped for someone, LARK shows the link to your running Doc
-with them, the time of your next 1:1, what you owe them, and what you need to answer or decide.
-What they owe you and what is on the agenda come only when you ask for more. It reads the register
-on this laptop and nothing else: no email, no Calendar call (the next 1:1 time is the one the
-background check already keeps), and it writes nothing. That is enforced: LARK can run only the
-prep command and the register's read commands, and anything else it tries is refused before it
-runs.
+What was built: when you ask to be prepped for someone, LARK gives you the full briefing, your
+part first: what you owe them and what you need to answer or decide, then what they owe you, the
+topics for your next 1:1 (yours and theirs), what the Doc carries forward and what your last 1:1
+recorded, and finally the time of your next 1:1 and the link to your running Doc. It reads the
+register on this laptop and nothing else: no email, no Calendar call (the next 1:1 time is the one
+the background check already keeps), and what it shows from the Doc is the copy that check last
+read. It writes nothing. That is enforced: LARK can run only the prep command and the register's
+read commands, and anything else it tries is refused before it runs.
 
 Why: it is the part of Phase 7 that changes nothing, so it can run safely before the rest of the
 phase, and it saves you assembling the same answer by hand before each 1:1.

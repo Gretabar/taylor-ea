@@ -5,7 +5,7 @@ description: "REED's rules for turning Taylor's words into register records: top
 
 # Capture rules
 
-Owner: REED. The source is `context/architecture/blueprint.md` sections 1, 3 and 4; this is the
+Owner: REED. The source is Taylor's living blueprint (`state/taylor/blueprint.md`, else the v1 baseline in `context/architecture/`), sections 1, 3 and 4; this is the
 working distillation. If they ever disagree, the blueprint wins and this file is wrong.
 
 ## What a clause is
@@ -38,7 +38,7 @@ before creating anything that might already exist.
 
 ## Dates
 
-- Resolve against the INSTRUCTION date in Taylor's timezone (`context/identity.json`):
+- Resolve against the INSTRUCTION date in Taylor's timezone (`context/identity.json`, or his override in `state/taylor/identity.json`):
   `python scripts/register.py resolve-date "<phrase>" --from <YYYY-MM-DD>`.
 - `ambiguous` (a weekday said on that weekday; "next Friday") is asked about or recorded as
   `--due unresolved --due-note "<Taylor's words>"`. Never pick one.

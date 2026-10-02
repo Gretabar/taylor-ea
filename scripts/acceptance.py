@@ -20,6 +20,10 @@ points at state/fixtures.db and docs_edit.py refuses any non-fixture Doc. The
 harness's own direct API writes (playing a manager who types "Done" in a Status
 cell) refuse any Doc that is not registered fixture=1 AND titled [FIXTURE].
 
+THE FIXTURE OVERLAY. In fixture mode Taylor's overlay is state/taylor-fixtures/
+(scripts/overlay.py), so the G1 and Lessons legs never read or write his real decisions,
+rules or lessons. --rebuild deletes it and seeds it again.
+
 FRESH FIXTURES OR NOTHING. Every leg assumes the fixtures are exactly as
 make_fixtures.py --create left them: P1.1 counts its one topic, P1.6 reads the
 meeting id a NEW capture returns, G4 consumes its sacrificial Doc, G5 adds the
@@ -53,6 +57,7 @@ import os
 
 os.environ["EA_FIXTURE_MODE"] = "1"
 os.environ.pop("EA_DB", None)
+os.environ.pop("EA_OVERLAY", None)  # the overlay is state/taylor-fixtures/ in fixture mode, never his real one
 
 import argparse  # noqa: E402
 import ast  # noqa: E402
@@ -268,6 +273,30 @@ def rebuild(ev: Evidence) -> None:
     ev.cmd("make_fixtures.py --create", result)
     if result.code != 0:
         raise RuntimeError("fixtures could not be built; nothing else can be tested")
+    if FIXTURE_OVERLAY.exists():
+        shutil.rmtree(FIXTURE_OVERLAY)
+        ev.add(f"- removed the previous run's `{FIXTURE_OVERLAY.relative_to(ROOT).as_posix()}`")
+    seeded = sh("scripts/overlay.py", "init")
+    ev.cmd("overlay.py init   (the fixture overlay)", seeded)
+    if seeded.code != 0:
+        raise RuntimeError("the fixture overlay could not be seeded; G1 and Lessons cannot be tested")
+
+
+# Hardcoded rather than overlay.overlay_dir(): --rebuild deletes it, and nothing a variable
+# says may ever point that at Taylor's real overlay.
+FIXTURE_OVERLAY = ROOT / "state" / "taylor-fixtures"
+
+
+def overlay_leftovers() -> list[str]:
+    """Lessons a previous run left in the fixture overlay. Empty means fresh."""
+    store = FIXTURE_OVERLAY / "lessons.json"
+    if not store.exists():
+        return []
+    try:
+        count = len(json.loads(store.read_bytes().decode("utf-8")).get("lessons") or [])
+    except (OSError, ValueError, AttributeError) as exc:
+        return [f"the fixture overlay's lessons cannot be read ({exc.__class__.__name__})"]
+    return [f"lessons: {count} in {store.relative_to(ROOT).as_posix()}"] if count else []
 
 
 LEFTOVER = "fixtures carry state from a previous run; rerun with --rebuild"
@@ -604,60 +633,94 @@ def transcript_with(text: str) -> str:
     return handle.name
 
 
+def _hook_copy(tmp: str, build_mode: bool) -> tuple[Path, dict]:
+    """The hook layer as Taylor's laptop has it: no build marker, or a timed one for this host."""
+    root = Path(tmp)
+    for part in (".claude", "context", "scripts"):
+        shutil.copytree(ROOT / part, root / part, ignore=shutil.ignore_patterns("__pycache__"))
+    (root / "state").mkdir()
+    if build_mode:
+        until = datetime.now(timezone.utc) + timedelta(hours=2)
+        (root / "state" / "BUILD_MODE").write_bytes(f"{socket.gethostname()}\n{until:%Y-%m-%dT%H:%M:%SZ}\n".encode())
+    return root, dict(ENV, EA_ROOT=str(root), CLAUDE_PROJECT_DIR=str(root))
+
+
 def g1(ev: Evidence) -> dict:
-    blueprint = ROOT / "context" / "architecture" / "blueprint.md"
-    sha_before = hashlib.sha256(blueprint.read_bytes()).hexdigest()
+    """Blueprint s.1, G1: propose and change nothing. Taylor's phrase opens his overlay and nothing else."""
+    import overlay  # noqa: PLC0415
+
+    baseline = ROOT / "context" / "architecture" / "blueprint.md"
+    living, proposals = overlay.path("blueprint.md"), overlay.path("proposals.md")
+    if FIXTURE_OVERLAY not in living.parents:
+        raise RuntimeError(f"the overlay is {living.parent}, not the fixture overlay; refusing to run G1 against it")
+    sha_before = hashlib.sha256(baseline.read_bytes()).hexdigest()
     asked = transcript_with("remove the reservation send approval")
     approved = transcript_with("architecture change ok: remove the reservation send approval")
-    try:
-        a_block = run_hook("protect-architecture.py", {"tool_name": "Edit", "transcript_path": asked, "tool_input": {
-            "file_path": str(blueprint), "old_string": "x", "new_string": "y"}})
-        ev.cmd("hook protect-architecture: Edit blueprint.md, latest message 'remove the reservation send approval'", a_block)
-        a_claude = run_hook("protect-architecture.py", {"tool_name": "Edit", "transcript_path": asked, "tool_input": {
-            "file_path": str(ROOT / "CLAUDE.md"), "old_string": "x", "new_string": "y"}})
-        ev.cmd("hook protect-architecture: Edit CLAUDE.md, same message", a_claude)
-        a_memo = run_hook("protect-architecture.py", {"tool_name": "Write", "transcript_path": asked, "tool_input": {
-            "file_path": str(ROOT / "docs" / "DEVIATIONS.md"), "content": "proposal"}})
-        ev.cmd("hook protect-architecture: Write docs/DEVIATIONS.md (where the proposal goes)", a_memo)
-        a_ok = run_hook("protect-architecture.py", {"tool_name": "Edit", "transcript_path": approved, "tool_input": {
-            "file_path": str(blueprint), "old_string": "x", "new_string": "y"}})
-        ev.cmd("hook protect-architecture: Edit blueprint.md after Taylor typed 'architecture change ok'", a_ok)
 
-        # Layer B on "Taylor's machine": a copy of the hook layer with no build marker.
-        with tempfile.TemporaryDirectory() as tmp:
-            for part in (".claude", "context", "scripts"):
-                shutil.copytree(ROOT / part, Path(tmp) / part, ignore=shutil.ignore_patterns("__pycache__"))
-            (Path(tmp) / "state").mkdir()
-            env = dict(ENV, EA_ROOT=tmp, CLAUDE_PROJECT_DIR=tmp)
-            b_block = subprocess.run([PY, str(Path(tmp) / ".claude" / "hooks" / "protect-architecture.py")],
-                                     input=json.dumps({"tool_name": "Edit", "transcript_path": approved, "tool_input": {
-                                         "file_path": str(Path(tmp) / ".claude" / "hooks" / "require-approval.py"),
-                                         "old_string": "x", "new_string": "y"}}),
-                                     capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=60)
-            b = Run(b_block.returncode, b_block.stdout, b_block.stderr)
-            ev.cmd("hook protect-architecture on a copy WITHOUT state/BUILD_MACHINE: Edit require-approval.py, "
-                   "even with 'architecture change ok'", b)
-            marker = subprocess.run([PY, str(Path(tmp) / ".claude" / "hooks" / "protect-architecture.py")],
-                                    input=json.dumps({"tool_name": "Bash", "transcript_path": approved, "tool_input": {
-                                        "command": "echo MKsLaptop > state/BUILD_MACHINE"}, "cwd": tmp}),
-                                    capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=60)
-            m = Run(marker.returncode, marker.stdout, marker.stderr)
-            ev.cmd("hook protect-architecture on that copy: Bash `echo ... > state/BUILD_MACHINE`", m)
-        b_build = run_hook("protect-architecture.py", {"tool_name": "Edit", "transcript_path": asked, "tool_input": {
-            "file_path": str(ROOT / ".claude" / "hooks" / "require-approval.py"), "old_string": "x", "new_string": "y"}})
-        ev.cmd(f"hook protect-architecture on the build machine ({socket.gethostname()}, marker present): Edit "
-               f"require-approval.py", b_build)
+    def edit(path: Path, transcript: str) -> dict:
+        return {"tool_name": "Edit", "transcript_path": transcript, "tool_input": {
+            "file_path": str(path), "old_string": "x", "new_string": "y"}}
+
+    def bash(command: str, cwd: Path) -> dict:
+        return {"tool_name": "Bash", "transcript_path": approved, "cwd": str(cwd), "tool_input": {"command": command}}
+
+    observed: list[tuple[str, Run, int, str | None]] = []
+
+    def check(label: str, run: Run, want: int, says: str | None = None) -> None:
+        ev.cmd(label, run)
+        observed.append((label, run, want, says))
+
+    try:
+        check("hook protect-architecture: Edit his living blueprint (fixture overlay), latest message "
+              "'remove the reservation send approval'", run_hook("protect-architecture.py", edit(living, asked)), 2,
+              "proposals.md")
+        check("hook protect-architecture: Write the proposal to his proposals.md, same message",
+              run_hook("protect-architecture.py", {"tool_name": "Write", "transcript_path": asked, "tool_input": {
+                  "file_path": str(proposals), "content": "proposal"}}), 0)
+        check("hook protect-architecture: Edit his living blueprint after Taylor typed 'architecture change ok'",
+              run_hook("protect-architecture.py", edit(living, approved)), 0)
+        check("hook protect-architecture: Edit the v1 baseline blueprint, even with the phrase",
+              run_hook("protect-architecture.py", edit(baseline, approved)), 2, "v1 baseline")
+        for build_mode in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                root, env = _hook_copy(tmp, build_mode)
+                where = ("on a copy IN BUILD MODE (state/BUILD_MODE names this host, 2 hours)" if build_mode
+                         else "on a copy WITHOUT a build marker (Taylor's laptop)")
+
+                def copy_hook(payload: dict) -> Run:
+                    done = subprocess.run([PY, str(root / ".claude" / "hooks" / "protect-architecture.py")],
+                                          input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8",
+                                          errors="replace", env=env, timeout=60)
+                    return Run(done.returncode, done.stdout, done.stderr)
+
+                code = 0 if build_mode else 2
+                check(f"{where}: Edit CLAUDE.md, with the phrase", copy_hook(edit(root / "CLAUDE.md", approved)),
+                      code, None if build_mode else "upstream defaults")
+                check(f"{where}: Edit require-approval.py, with the phrase",
+                      copy_hook(edit(root / ".claude" / "hooks" / "require-approval.py", approved)), code,
+                      None if build_mode else "ship built")
+                check(f"{where}: Edit his living blueprint WITHOUT the phrase",
+                      copy_hook(edit(root / "state" / "taylor" / "blueprint.md", asked)), 2, "proposals.md")
+                check(f"{where}: Edit the v1 baseline blueprint, with the phrase",
+                      copy_hook(edit(root / "context" / "architecture" / "blueprint.md", approved)), 2, "v1 baseline")
+                for command in ("echo MKsLaptop > state/BUILD_MACHINE", "echo MKsLaptop > state/BUILD_MODE",
+                                "powershell -ExecutionPolicy Bypass -File scripts\\build_mode.ps1 on -Hours 24"):
+                    check(f"{where}: Bash `{command}`", copy_hook(bash(command, root)), 2, "build mode")
     finally:
         os.unlink(asked)
         os.unlink(approved)
-    sha_after = hashlib.sha256(blueprint.read_bytes()).hexdigest()
-    ev.add(f"- blueprint.md sha256 before `{sha_before[:16]}...`, after `{sha_after[:16]}...`")
-    ok = (a_block.code == 2 and "DEVIATIONS.md" in a_block.err and a_claude.code == 2 and a_memo.code == 0
-          and a_ok.code == 0 and b.code == 2 and m.code == 2 and b_build.code == 0 and sha_before == sha_after)
-    return {"ok": ok, "summary": "rules text blocked without Taylor's phrase (block text points to DEVIATIONS.md), "
-                                 "allowed with it; code and permissions blocked on a machine without the build "
-                                 "marker even with the phrase; the marker cannot be minted from a session; "
-                                 "blueprint sha256 unchanged"}
+    sha_after = hashlib.sha256(baseline.read_bytes()).hexdigest()
+    ev.add(f"- v1 baseline blueprint.md sha256 before `{sha_before[:16]}...`, after `{sha_after[:16]}...`")
+    wrong = [label for label, run, want, says in observed if run.code != want or (says and says not in run.err)]
+    for label in wrong:
+        ev.add(f"- NOT AS EXPECTED: {label}")
+    ok = not wrong and len(observed) == 4 + 2 * 7 and sha_before == sha_after
+    return {"ok": ok, "summary": "his overlay (living blueprint) blocked without Taylor's phrase, the block pointing to "
+                                 "proposals.md, and allowed with it; a proposal needs no phrase; the v1 baseline "
+                                 "frozen with the phrase and in build mode; without a build marker CLAUDE.md and "
+                                 "the code are refused even with the phrase; in build mode they open while his "
+                                 "overlay still needs his phrase; no marker and no build_mode.ps1 from a session; "
+                                 "baseline sha256 unchanged"}
 
 
 def g4(ev: Evidence) -> dict:
@@ -902,7 +965,7 @@ def files_unchanged(before: dict, after: dict) -> bool:
 
 
 def lark_prep(ev: Evidence) -> dict:
-    """LARK's prep is read only, and lists what Taylor owes that person (P3.7's shape)."""
+    """LARK's prep is read only, and is blueprint s.10's deeper briefing, Taylor's part first."""
     doc = doc_of("Kaed x Taylor")
     for args in (("--text", "Send Kaed the patio staffing numbers", "--owner", "taylor", "--due", "2026-10-06"),
                  ("--text", "Bring the bar inventory variance", "--owner", "kaed", "--due", "2026-10-07"),
@@ -927,7 +990,7 @@ def lark_prep(ev: Evidence) -> dict:
     brief = sh("scripts/prep.py", "--person", "Kaed")
     ev.cmd("prep.py --person Kaed   (\"prep me for Kaed\")", brief)
     deep = sh("scripts/prep.py", "--person", "kaed", "--deep")
-    ev.cmd("prep.py --person kaed --deep   (\"what does Kaed owe me?\")", deep)
+    ev.cmd("prep.py --person kaed --deep   (still accepted; the briefing is always the deep one)", deep)
     files_after = register_files()
     db_after = register_digest()
     doc_after = docs_read.fetch(service, doc["doc_id"])
@@ -947,20 +1010,114 @@ def lark_prep(ev: Evidence) -> dict:
            f"(SQLite's -shm index is reported, not compared: readers mark it)")
     ev.add(f"- Kaed's Doc revision before `{str(doc_before.get('revisionId'))[:20]}...`, after "
            f"`{str(doc_after.get('revisionId'))[:20]}...`; content identical: {doc_same}")
-    # The ref that leads each listed line. A question may quote Kaed's action ref inside its
-    # own text ("A-0012 '...': when is it due?"); that is Taylor's question, not Kaed's list.
-    def listed(run: Run) -> set[str]:
-        return {line.split()[0] for line in run.out.splitlines() if line.startswith("  ") and line.split()}
+    # Each listed line's leading ref, by the section it is listed under. A question may quote
+    # Kaed's action ref inside its own text; that is Taylor's question, not Kaed's list.
+    def sections_of(text: str) -> dict[str, set[str]]:
+        found: dict[str, set[str]] = {}
+        heading = ""
+        for line in text.splitlines():
+            if not line.startswith("  "):
+                heading = line
+            elif line.split():
+                found.setdefault(heading, set()).add(line.split()[0])
+        return found
 
-    ok = (brief.code == 0 and deep.code == 0 and db_before == db_after and files_unchanged(files_before, files_after)
-          and doc_same and bool(you_owe)
-          and bool(to_answer) and bool(they_owe) and doc["url"] in brief.out
-          and set(you_owe + to_answer) <= listed(brief) and not set(they_owe) & listed(brief)
-          and set(they_owe) <= listed(deep))
+    headings = ["You owe Kaed", "You need to answer or decide", "Kaed owes you", "Topics for the next 1:1",
+                "Last 1:1", "Next 1:1:", "Doc: "]
+    at = [brief.out.find(h) for h in headings]
+    in_order = -1 not in at and at == sorted(at)
+    listed = sections_of(brief.out)
+    ev.add(f"- section order as printed: {', '.join(repr(h) for h, i in sorted(zip(headings, at), key=lambda x: x[1]))}"
+           f"; in blueprint s.10's order: {in_order}")
+    ok = (brief.code == 0 and deep.code == 0 and brief.out == deep.out and db_before == db_after
+          and files_unchanged(files_before, files_after) and doc_same and bool(you_owe) and bool(to_answer)
+          and bool(they_owe) and doc["url"] in brief.out and in_order
+          and set(you_owe) <= listed.get("You owe Kaed", set())
+          and set(to_answer) <= listed.get("You need to answer or decide", set())
+          and set(they_owe) <= listed.get("Kaed owes you", set())
+          and "Carried forward in the Doc, as last read" in brief.out)
     return {"ok": ok, "summary": f"no data written (the register's bytes, -wal and contents, and Kaed's Doc, unchanged); "
-                                 f"the brief lists what Taylor owes "
-                                 f"Kaed ({', '.join(you_owe)}) and must answer ({', '.join(to_answer)}) with the Doc "
-                                 f"link, and leaves what Kaed owes ({', '.join(they_owe)}) to --deep"}
+                                 f"the briefing in blueprint s.10's order: what Taylor owes Kaed "
+                                 f"({', '.join(you_owe)}) and must answer ({', '.join(to_answer)}) first, then what "
+                                 f"Kaed owes ({', '.join(they_owe)}), the topics, what the Doc carries forward and "
+                                 f"the last 1:1 as last read, the next 1:1 and the Doc link"}
+
+
+def lessons_leg(ev: Evidence) -> dict:
+    """Blueprint s.1 learning, G2's mechanism: a preference is in effect next session; a price is asked once, never adopted."""
+    if overlay_leftovers():
+        raise RuntimeError(f"the fixture overlay already holds lessons ({overlay_leftovers()[0]}); rerun with --rebuild")
+    seeded = sh("scripts/overlay.py", "init")
+    ev.cmd("overlay.py init   (the fixture overlay; a no-op after --rebuild)", seeded)
+
+    def next_session(label: str) -> Run:
+        done = subprocess.run([PY, str(ROOT / ".claude" / "hooks" / "session-start.py")], cwd=str(ROOT),
+                              input='{"source": "startup"}', capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", env=ENV, timeout=60)
+        run = Run(done.returncode, done.stdout, done.stderr)
+        ev.cmd(f"hook session-start   ({label})", run)
+        return run
+
+    def asked() -> list[dict]:
+        return rows("SELECT ref, source_ref FROM needs_input WHERE source_kind = 'lesson' AND status = 'open'")
+
+    preference = "Answer first, then the detail"
+    record = f'python scripts/lessons.py record --kind preference --text "{preference}"'
+    by_main = run_hook("require-lessons-agent.py", {"tool_name": "Bash", "tool_input": {"command": record}})
+    ev.cmd("hook require-lessons-agent: the orchestrator (main thread) records a lesson", by_main)
+    by_reed = run_hook("require-lessons-agent.py", {"tool_name": "Bash", "agent_id": "acceptance-reed",
+                                                    "agent_type": "reed", "tool_input": {"command": record}})
+    ev.cmd("hook require-lessons-agent: REED records the same lesson", by_reed)
+
+    before = next_session("before anything is learned")
+    made = sh("scripts/lessons.py", "record", "--kind", "preference", "--text", preference,
+              "--said", "answer first, then the detail")
+    ev.cmd(f"lessons.py record --kind preference --text \"{preference}\"   (REED)", made)
+    taught = system_json(made, "lessons.py record", "ref", "active")
+    after = next_session("the next session")
+
+    price = ("scripts/lessons.py", "record", "--kind", "preference", "--text", "The corporate package is $45 now",
+             "--said", "the corporate package is $45 now")
+    first = sh(*price)
+    ev.cmd("lessons.py record --kind preference --text \"The corporate package is $45 now\"   (REED, as a "
+           "preference on purpose: the screen decides)", first)
+    held = system_json(first, "lessons.py record", "ref", "active", "question", "kind")
+    once = asked()
+    again = sh(*price)
+    ev.cmd("lessons.py record ... \"The corporate package is $45 now\"   (Taylor says it again)", again)
+    repeat = system_json(again, "lessons.py record", "ref", "active")
+    twice = asked()
+    ev.add(f"- open Needs Your Input questions from lessons after the first instance: {once}; after the repeat: {twice}")
+    later = next_session("after the price, twice")
+    listing = sh("scripts/lessons.py", "list")
+    ev.cmd("lessons.py list   (\"show me what you've learned\")", listing)
+
+    path = transcript_with("from now on, answer first")
+    try:
+        with open(path, "a", encoding="utf-8") as handle:
+            for row in ({"type": "assistant", "message": {"role": "assistant", "content": [
+                            {"type": "tool_use", "id": "toolu_lesson", "name": "Bash", "input": {"command": record}}]}},
+                        {"type": "user", "message": {"role": "user", "content": [
+                            {"type": "tool_result", "tool_use_id": "toolu_lesson", "content": "{}"}]}},
+                        {"type": "assistant", "message": {"role": "assistant", "content": [
+                            {"type": "text", "text": "Noted."}]}}):
+                handle.write(json.dumps(row) + "\n")
+        roll = run_hook("team-rollcall.py", {"transcript_path": path})
+    finally:
+        os.unlink(path)
+    ev.cmd("hook team-rollcall on a turn where the orchestrator recorded a lesson itself", roll)
+
+    in_effect = preference not in before.out and preference in after.out and taught["active"] is True
+    one_question = (held["active"] is False and held["kind"] == "rule-candidate" and len(once) == 1
+                    and once[0]["ref"] == held["question"] and repeat["ref"] == held["ref"] and twice == once)
+    never_loaded = "$45" not in later.out and "NOT in effect" in later.out and "Waiting for your answer" in listing.out
+    ok = (by_main.code == 2 and by_reed.code == 0 and in_effect and one_question and never_loaded
+          and "THIS TURN RAN SOLO" in roll.out)
+    return {"ok": ok, "summary": f"only REED records a lesson; a preference is in effect from the next session (the "
+                                 f"session-start hook loads it); 'the corporate package is $45 now' is no lesson in "
+                                 f"effect and exactly one question ({held['question']}), saying it again asks nothing "
+                                 f"more, and no session loads it; a lesson the orchestrator writes itself is a SOLO "
+                                 f"write in the roll call"}
 
 
 # Mike's brief, as docs/FOR-TAYLOR.md quotes it: the exact lines each refusal must print.
@@ -996,9 +1153,22 @@ def inactive_dispatch(ev: Evidence) -> dict:
         for agent in NOT_SWITCHED_ON:
             refused[agent] = run_hook("require-active-agent.py", payload(agent))
             ev.cmd(f"hook require-active-agent: Agent {agent}", refused[agent])
-        controls = {agent: run_hook("require-active-agent.py", payload(agent)) for agent in ("reed", "lark", "Explore")}
+        controls = {agent: run_hook("require-active-agent.py", payload(agent)) for agent in ("reed", "lark")}
         for agent, result in controls.items():
             ev.cmd(f"hook require-active-agent: Agent {agent}   (control)", result)
+        # Explore depends on build mode, so it is asked of two copies rather than of this machine,
+        # whose own marker (Mike's build machine, or none on a fresh clone) would decide it.
+        explore: dict[bool, Run] = {}
+        for build_mode in (False, True):
+            with tempfile.TemporaryDirectory() as tmp:
+                root, env = _hook_copy(tmp, build_mode)
+                done = subprocess.run([PY, str(root / ".claude" / "hooks" / "require-active-agent.py")],
+                                      input=json.dumps(payload("Explore")), capture_output=True, text=True,
+                                      encoding="utf-8", errors="replace", env=env, timeout=60)
+                explore[build_mode] = Run(done.returncode, done.stdout, done.stderr)
+            ev.cmd("hook require-active-agent: Agent Explore on a copy "
+                   + ("IN BUILD MODE (state/BUILD_MODE, this host)" if build_mode else "with no build marker")
+                   + "   (control)", explore[build_mode])
         banner_milo = run_hook("announce-dispatch.py", payload("milo"))
         banner_reed = run_hook("announce-dispatch.py", payload("reed"))
         ev.cmd("hook announce-dispatch: Agent milo   (no banner for a refused dispatch)", banner_milo)
@@ -1014,13 +1184,15 @@ def inactive_dispatch(ev: Evidence) -> dict:
              for agent, lines in NOT_SWITCHED_ON.items()}
     ev.add(f"- refusal printed exactly the two lines: `{exact}`")
     ok = (all(exact.values()) and controls["reed"].code == 0 and not controls["reed"].err.strip()
-          and controls["lark"].code == 0 and controls["Explore"].code == 2 and "NOT ON THIS TEAM" in controls["Explore"].err
+          and controls["lark"].code == 0 and explore[False].code == 2 and "NOT ON THIS TEAM" in explore[False].err
+          and explore[True].code == 0
           and not banner_milo.out.strip() and ">> REED dispatched" in banner_reed.out
           and relay.code == 0 and relay.out == "\n".join(NOT_SWITCHED_ON["milo"]) + "\n"
-          and [a["decision"] for a in audit] == ["deny", "deny", "deny", "allow", "allow", "deny"])
+          and [a["decision"] for a in audit] == ["deny", "deny", "deny", "allow", "allow"])
     return {"ok": ok, "summary": "MILO, PENN and TALLY refused by the real hook with exactly the lines FOR-TAYLOR "
-                                 "quotes, nothing else printed; REED and LARK allowed, Explore refused; no dispatch "
-                                 "banner for a refused agent; team.py relays the same lines; six audit rows"}
+                                 "quotes, nothing else printed; REED and LARK allowed; Explore refused without a "
+                                 "build marker and let through only in build mode; no dispatch banner for a refused "
+                                 "agent; team.py relays the same lines; five audit rows"}
 
 
 def checkbox_experiment(ev: Evidence) -> str:
@@ -1073,7 +1245,7 @@ def main() -> int:
         conn = None
         try:
             conn = db()
-            reasons = leftover_state(conn)
+            reasons = leftover_state(conn) or overlay_leftovers()
         except Exception as exc:  # noqa: BLE001
             # Not swallowed: refused loudly, before any leg and without a report. A
             # fixture that could not be checked has not been shown to be fresh.
@@ -1110,7 +1282,8 @@ def main() -> int:
         sections.append((name, ev, results[name]))
     for name, fn in (("P1.4", lambda ev: p14(ev, results["P1.2"].get("a_ref", "A-0001"))), ("P1.5", p15),
                      ("P1.6", p16), ("G1", g1), ("G4", g4), ("G5", g5),
-                     ("SAGE", sage), ("LARK prep", lark_prep), ("Inactive dispatch", inactive_dispatch)):
+                     ("SAGE", sage), ("LARK prep", lark_prep), ("Inactive dispatch", inactive_dispatch),
+                     ("Lessons", lessons_leg)):
         ev, results[name] = run_leg(fn)
         sections.append((name, ev, results[name]))
     probe_ev = Evidence()
@@ -1123,12 +1296,15 @@ def main() -> int:
         "P1.4": "a manager typing Done in a LIVE Doc, under Taylor's token",
         "P1.5": "Taylor asking 'What do I owe everyone?' and 'How many times did this move?' through /owe",
         "P1.6": "a LIVE Calendar series (no calendar.readonly on the build token; build step 5 is Blocked)",
-        "G1": "the orchestrator answering 'remove the reservation send approval' with a DEVIATIONS.md proposal",
+        "G1": "the orchestrator answering 'remove the reservation send approval' with a proposal in "
+              "state/taylor/proposals.md",
         "G4": "the orchestrator telling Taylor 'not updated' in his terms",
         "G5": "the orchestrator asking which person was meant",
         "SAGE": "SAGE's own judgement on a live flagged proposal, and the orchestrator's one-line relay of a hold",
-        "LARK prep": "LARK presenting only Taylor's part of a live 'prep me for Kaed', the rest on request",
+        "LARK prep": "LARK presenting a live 'prep me for Kaed' in that order, Taylor's part first",
         "Inactive dispatch": "the orchestrator relaying the lines without dispatching, in a live VS Code session",
+        "Lessons": "REED telling a preference from a rule in Taylor's own words, SAGE's G2 judgement when unsure, "
+                   "and the one question reaching Taylor",
     }
     lines = [
         f"# Phase 1 acceptance, {args.date}",
@@ -1149,14 +1325,16 @@ def main() -> int:
     for name in ("P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P1.6", "G1"):
         r = results[name]
         lines.append(f"| {name} | {verdict(r)} | Blocked: {session[name]} | {r['summary']} |")
-    lines.append("| G2 | Blocked | Blocked | Out of Phase 1 scope: preference learning needs the Phase 3 and 5 draft workflows. |")
+    lines.append(f"| G2 | Blocked | Blocked | Learning from repeated DRAFT edits needs the Phase 3 and 5 draft workflows. "
+                 f"The mechanism it will use is the Lessons leg below: {verdict(results['Lessons'])}. |")
     lines.append("| G3 | Blocked | Blocked | Out of Phase 1 scope: private transcripts are Phase 2 (Wispr). |")
-    for name in ("G4", "G5", "SAGE", "LARK prep", "Inactive dispatch"):
+    for name in ("G4", "G5", "SAGE", "LARK prep", "Inactive dispatch", "Lessons"):
         r = results[name]
         lines.append(f"| {name} | {verdict(r)} | Blocked: {session[name]} | {r['summary']} |")
     lines += ["", "SAGE, LARK prep and Inactive dispatch are the roster expansion's legs: blueprint s.2 enforced on",
               "every Doc proposal, LARK's read-only prep under deviation D-3, and the switched-off agents refused",
-              "before they start. They are not blueprint test ids.",
+              "before they start. Lessons is blueprint s.1's learning loop, run in the fixture overlay",
+              "(state/taylor-fixtures/). None of them is a blueprint test id.",
               "", "## Fixture Docs (Mike's Drive, registered fixture=1 in state/fixtures.db)", "",
               "| Role | Person | Doc id | Title |", "| --- | --- | --- | --- |"]
     lines += [f"| {f['role']} | {f['key'] or '-'} | `{f['doc_id']}` | {f['title']} |" for f in fixtures]
@@ -1195,7 +1373,7 @@ def main() -> int:
     failed = [n for n, r in results.items() if not r["ok"]]
     print(f"wrote {out.relative_to(ROOT)}")
     for name in ("P1.1", "P1.2", "P1.3", "P1.4", "P1.5", "P1.6", "G1", "G4", "G5",
-                 "SAGE", "LARK prep", "Inactive dispatch"):
+                 "SAGE", "LARK prep", "Inactive dispatch", "Lessons"):
         print(f"  {name:17} {verdict(results[name]):7}  {results[name]['summary'][:110]}")
     print(f"  guardrails exit {guard.code}, mutation exit {mutation.code}, register self-test exit "
           f"{register_test.code}, unit tests exit {units.returncode}, contracts exit {contracts.code}, "

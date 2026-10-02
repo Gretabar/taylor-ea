@@ -35,16 +35,31 @@ stalled Taylor's chats and spent the org's monthly cap.
 
 ## 2. Taylor's architecture is his (blueprint sections 1 and 13)
 
-- **Rules text** (`CLAUDE.md`, `context/architecture/**`) changes only when Taylor's own latest
-  message contains `architecture change ok`. Then: make the change AND append one bullet to
-  `context/architecture/CHANGE-LOG.md` in its stated format, in the same turn. A change that needs
-  code is recorded as "requested from Mike", never claimed as live.
-- **Code and permissions** (`.claude/**`, `scripts/**`, `tests/**`, `context/*.json`) are never
-  edited from a session on Taylor's machine. They ship built from Mike's machine.
+- **His decisions live in his overlay, `state/taylor/`**, which `git pull` never touches: his phase
+  approvals (`phases.json`), deviation decisions (`deviations.json`), Architecture Change Log
+  (`CHANGE-LOG.md`), his own rules (`rules.md`, loaded at the start of every session), his living
+  blueprint (`blueprint.md`) and his identity overrides (`identity.json`). They change only when
+  his own latest message contains `architecture change ok`. Then: make the change AND append one
+  bullet to `state/taylor/CHANGE-LOG.md` in its stated format, in the same turn. A change that
+  needs code is recorded as "requested from Mike", never claimed as live.
+- **Upstream defaults and code** (this file, `context/**`, `docs/**`, `.claude/**`, `scripts/**`,
+  `tests/**`) are never edited from a session on Taylor's machine, whatever is said: every update
+  replaces them, so a local edit would fight his next pull. They change only in build mode, while
+  Mike builds (`scripts/build_mode.ps1`, from a terminal).
 - Anything else that would change how the system behaves: write a proposal into
-  `docs/DEVIATIONS.md` (the change, why, what it affects), ask Taylor, change nothing.
-- `protect-architecture.py` enforces both layers. A refusal is the system working; rephrasing does
+  `state/taylor/proposals.md` (the change, why, what it affects), ask Taylor, change nothing.
+- `protect-architecture.py` enforces all of it. A refusal is the system working; rephrasing does
   not change it.
+
+## 2b. Learning from Taylor (blueprint section 1, "Learning and corrections")
+
+- A preference or a routing correction ("answer first", "Kaed's bar items go under Action Items")
+  is recorded by REED with `scripts/lessons.py` and is in effect from the next session, which loads
+  the lessons in effect. An identity correction is a register alias, as always.
+- A price, package, minimum spend, discount, policy, sending permission or rule is never learned
+  from one instance. The script holds it as a rule-candidate, asks Taylor ONCE through Needs Your
+  Input, and it applies only after his yes. Never apply one meanwhile; never ask again yourself.
+- "Show me what you've learned": `python scripts/lessons.py list`. "Forget <x>": REED.
 
 ## 3. Never report a success that did not complete (blueprint section 1)
 
@@ -88,9 +103,11 @@ TripleSeat, or Wispr. When asked to audit those, say so plainly; never describe 
 
 ## The team
 
-Thirteen specialists. One is switched on only when Taylor has approved its phase
-(`context/architecture/phases.json`) and Mike has built and accepted it (`context/roster-agents.json`);
-`python scripts/team.py` prints who is on now.
+Thirteen specialists. One is switched on only when Taylor has approved its phase (his decision in
+`state/taylor/phases.json`, over the defaults in `context/architecture/phases.json`) and Mike has
+built and accepted it (`context/roster-agents.json`); `python scripts/team.py` prints who is on
+now. In build mode, and only then, dev agents that are not on the team (Explore, Plan,
+general-purpose, plugin reviewers) may be dispatched too; a team agent that is off stays off.
 
 | Agent | Model | Lane | Phase | At handover |
 | --- | --- | --- | --- | --- |
@@ -113,9 +130,10 @@ Never dispatch an agent that is off: relay what `python scripts/team.py --agent 
 - The register is `state/ea.db` (SQLite, on this machine). Fixtures live in `state/fixtures.db`
   and are only touched with `EA_FIXTURE_MODE=1`.
 - Files under `state/` or `output/` declare a class in their first lines (`ea-class:`):
-  `private` (state/private), `records` (state/proposals, state/records), `shareable` (output/drafts).
-- The repo lives at the root of C: (`context/identity.json`, `repo_root`), never under Documents or
-  Desktop, which OneDrive syncs.
+  `private` (state/private, and Taylor's overlay state/taylor), `records` (state/proposals,
+  state/records), `shareable` (output/drafts).
+- The repo lives at the root of C: (`repo_root` in `context/identity.json`, or this machine's in
+  `state/taylor/identity.json`), never under Documents or Desktop, which OneDrive syncs.
 
 ## Content rules
 
@@ -145,9 +163,12 @@ the top of `/morning`: tell Mike.
 | a capture | blueprint section 4; skill capture-rules |
 | a Doc edit | blueprint section 4, "Proposed document arrangement"; skill doc-editor |
 | privacy question, a flagged proposal | blueprint section 2; `docs/PRIVACY.md` |
-| prep for a 1:1 | blueprint P3.7 in section 12; LARK |
+| prep for a 1:1 | blueprint section 10, "Preparation and intelligence"; LARK |
+| a correction or preference | blueprint section 1, "Learning and corrections"; REED |
 | an architecture change request | blueprint section 1 and section 13 "Architecture Change Log" |
 | acceptance and G1 to G5 | blueprint section 12, "Governance and privacy" and "Phase 1" |
 | what a later phase will do | blueprint sections 5 to 10; never build it in Phase 1 |
 
-The blueprint is `context/architecture/blueprint.md`. Its section numbers are the source's own.
+The blueprint is Taylor's living copy, `state/taylor/blueprint.md`; `context/architecture/blueprint.md`
+is the v1 baseline it was seeded from, and is read only when the living copy is not there yet. Its
+section numbers are the source's own.

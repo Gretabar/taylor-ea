@@ -77,6 +77,7 @@ DOC_OR_TAYLOR_BOUND = (
     "output/drafts/",
     "docs/",
     "README.md",
+    "state/taylor/",
 )
 DOC_BOUND_PATH = "state/proposals/doc-bound-text"
 

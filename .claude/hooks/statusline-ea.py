@@ -10,6 +10,8 @@ tick job is ea_tick.
     NAME  ticks OK (2h ago)   read only              dim     (/owe, /morning)
     NAME  ticks OK (2h ago)   -- SOLO --             yellow  (no dispatch, and it wrote)
     NAME  LAST TICK 6 DAYS AGO                       red
+    ...   BUILD MODE until Thu 18:30 (3h 10m left)   bold magenta, after the rest, while
+                                                     state/BUILD_MODE is unexpired
 
 WHETHER THE VS CODE EXTENSION RENDERS THIS IS UNVERIFIED. team-rollcall.py carries
 the tick line too, as the fallback.
@@ -39,6 +41,7 @@ import _health  # noqa: E402
 MAX_SHOWN = 3
 
 GREEN = "\033[32m"
+MAGENTA = "\033[1;35m"
 RED = "\033[1;31m"
 BRIGHT_YELLOW = "\033[1;33m"
 DIM = "\033[2m"
@@ -116,16 +119,19 @@ def _verdict_uncached(transcript_path: str) -> tuple[str, list[str]]:
     return verdict.kind, list(verdict.names)
 
 
-def render(label: str, kind: str | None, names: list[str], hours: float | None, color: bool) -> str:
+def render(label: str, kind: str | None, names: list[str], hours: float | None, color: bool,
+           build: str = "") -> str:
     """One line. `kind` is an _activity verdict; anything else renders as unknown.
 
     The kinds are spelled out rather than imported so the warm path imports nothing;
     the guardrail self-test renders every outcome and goes red if the two drift.
+    `build` is _health.build_mode_text(): while build mode is on it closes the line, loudly.
     """
+    suffix = ("  " + _paint(build, MAGENTA, color)) if build else ""
     tick = _health.render_age(hours)
     if not _health.healthy(hours):
-        # The unhealthy bar carries the tick and nothing else.
-        return _paint(f"{label}  {tick}", RED, color)
+        # The unhealthy bar carries the tick, and build mode if it is on, and nothing else.
+        return _paint(f"{label}  {tick}", RED, color) + suffix
     if kind == "dispatched" and names:
         chain = ">".join(names[-MAX_SHOWN:])
         if len(names) > MAX_SHOWN:
@@ -140,17 +146,18 @@ def render(label: str, kind: str | None, names: list[str], hours: float | None, 
         team, team_color = "read only", DIM
     else:
         team, team_color = "team ?", DIM
-    return _paint(f"{label}  {tick}", GREEN, color) + "  " + _paint(team, team_color, color)
+    return _paint(f"{label}  {tick}", GREEN, color) + "  " + _paint(team, team_color, color) + suffix
 
 
 def status(color: bool) -> str:
     payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace") or "{}")
     transcript_path = payload.get("transcript_path") or ""
     label = _health.system_label()
+    build = _health.build_mode_text(_health.build_mode())  # never cached: it can change between repaints
 
     db_stamp = _db_stamp()
     if not transcript_path or _stamp(transcript_path) == [-1, -1]:
-        return render(label, None, [], _health.tick_age_hours(), color)
+        return render(label, None, [], _health.tick_age_hours(), color, build)
 
     transcript_stamp = _stamp(transcript_path)
     cache_path = _cache_file(transcript_path)
@@ -163,14 +170,14 @@ def status(color: bool) -> str:
     if entry is not None:
         names = entry.get("names")
         if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
-            return render(label, None, [], entry.get("tick_hours"), color)
-        return render(label, entry.get("kind"), names, entry.get("tick_hours"), color)
+            return render(label, None, [], entry.get("tick_hours"), color, build)
+        return render(label, entry.get("kind"), names, entry.get("tick_hours"), color, build)
 
     kind, names = _verdict_uncached(transcript_path)
     hours = _health.tick_age_hours()
     if _stamp(transcript_path) == transcript_stamp and _db_stamp() == db_stamp:
         _write_cache(cache_path, {"fmt": CACHE_FORMAT, **key, "kind": kind, "names": names, "tick_hours": hours})
-    return render(label, kind, names, hours, color)
+    return render(label, kind, names, hours, color, build)
 
 
 def main() -> int:

@@ -752,6 +752,55 @@ def runs_script(command: str, stem: str) -> bool:
     return False
 
 
+def _plain_script_args(args: list[str], stem: str) -> list[str] | None | bool:
+    """For `python <args>`: the arguments scripts/<stem>.py receives when the line runs it plainly,
+    None when it runs it in a form that hides them (-c, a runner module, stdin, a variable),
+    False when it does not run it at all."""
+    script = f"{stem}.py".lower()
+    args, _ = _without_redirections(args)
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg.startswith("--") or (arg.startswith("-") and len(arg) > 1 and arg[1] not in "cmWXQ"):
+            i += 1
+            continue
+        if arg in ("-W", "-X", "-Q"):
+            i += 2
+            continue
+        if arg.startswith("-m"):
+            module = arg[2:] or (args[i + 1] if i + 1 < len(args) else "")
+            rest = args[i + 1:] if arg[2:] else args[i + 2:]
+            if module.lower().rsplit(".", 1)[-1] == stem.lower():
+                return list(rest)
+            return None if _module_runs(module, rest, stem) else False
+        if arg.startswith("-"):
+            return None if _python_runs(args[i:], stem, True) else False
+        if program_name(arg) == script:
+            return list(args[i + 1:])
+        return False if not arg.startswith(("$", "%")) else None
+    return None
+
+
+def script_args(command: str, stem: str) -> list[list[str] | None]:
+    """One entry per invocation that runs scripts/<stem>.py: the arguments it passes the script,
+    or None when the form hides them. A gate that allows some subcommands treats None as the
+    worst case."""
+    if not runs_script(command, stem):
+        return []
+    script = f"{stem}.py".lower()
+    found: list[list[str] | None] = []
+    for program, args in invocations(command or ""):
+        if program == script:
+            found.append(list(args))
+        elif is_python(program):
+            plain = _plain_script_args(args, stem)
+            if plain is not False:
+                found.append(plain)
+        elif program.startswith(("$", "%")) or (program not in PURE_READERS and _mentions(" ".join(args), stem)):
+            found.append(None)
+    return found or [None]
+
+
 def program_runs(command: str, names: set[str] | frozenset[str]) -> list[list[str]]:
     """The argument list of every invocation of a program in `names`."""
     return [args for program, args in invocations(command or "") if program in names]

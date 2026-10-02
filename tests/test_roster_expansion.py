@@ -328,22 +328,23 @@ class LarkPrep(unittest.TestCase):
         finally:
             conn.close()
 
-    def test_the_brief_is_taylors_part_only_and_writes_nothing(self):
+    def test_the_brief_puts_taylors_part_first_and_writes_nothing(self):
+        # Blueprint s.10: prep IS the deeper briefing. Taylor's part leads; what Kaed owes follows.
         before = self.digest()
         brief = self.run_prep("--person", "Kaed")
         deep = self.run_prep("--person", "kaed", "--deep")
         self.assertEqual(self.digest(), before)
         self.assertEqual((brief.returncode, deep.returncode), (0, 0), brief.stderr + deep.stderr)
-        listed = {line.split()[0] for line in brief.stdout.splitlines() if line.startswith("  ")}
-        self.assertIn(self.mine, listed)
-        self.assertIn(self.question, listed)
-        self.assertNotIn(self.theirs, listed)
-        self.assertIn(self.theirs, deep.stdout)
+        self.assertEqual(brief.stdout, deep.stdout, "--deep is still accepted and changes nothing")
+        theirs_at = brief.stdout.index("Kaed owes you")
+        self.assertLess(brief.stdout.index(self.mine), theirs_at)
+        self.assertLess(brief.stdout.index(self.question), theirs_at)
+        self.assertGreater(brief.stdout.index(self.theirs), theirs_at)
 
     def test_nothing_owed_says_so(self):
         conn = ea_db.connect(self.db, read_only=True)
         try:
-            shown = prep.render(prep.build(conn, "Tania"), deep=False)
+            shown = prep.render(prep.build(conn, "Tania"))
         finally:
             conn.close()
         self.assertIn("No outstanding prep.", shown)

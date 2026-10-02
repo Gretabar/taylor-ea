@@ -9,7 +9,7 @@ THE ORDER IS THE DESIGN.
 
   1. REFUSE before touching anything. The Doc must be registered (the docs table IS
      the allowlist); with EA_FIXTURE_MODE=1 it must be a fixture; a live Doc needs
-     deviation D-1 approved by Taylor (context/architecture/deviations.json) and a
+     deviation D-1 approved by Taylor (his decision in state/taylor/deviations.json) and a
      section map he confirmed. The proposal file must hash to the row PAGE wrote
      (WREN delivers PAGE's bytes, never its own). Doc-bound text passes the content
      rules. A proposal the privacy screen flags (blueprint s.2) needs SAGE's approval
@@ -73,7 +73,6 @@ import validate_content_rules  # noqa: E402
 
 import _audit  # noqa: E402
 
-DEVIATIONS = ea_db.REPO_ROOT / "context" / "architecture" / "deviations.json"
 KINDS = ("add-topic", "add-action", "mark-done", "update-due")
 EXIT_OK, EXIT_REFUSED, EXIT_NOT_WRITTEN, EXIT_UNVERIFIED, EXIT_CRASH = 0, 2, 3, 4, 9
 
@@ -103,10 +102,16 @@ class NoChange(Exception):
 # ---------------------------------------------------------------------------
 
 def load_deviations() -> dict:
-    """The deviation register, or {} when unreadable. {} means nothing is approved."""
+    """The deviation register in effect, or {} when unreadable. {} means nothing is approved.
+
+    Read through scripts/overlay.py: Taylor's D-1 decision lives in state/taylor/deviations.json,
+    where `git pull` cannot reach it; the tracked file only holds the upstream default.
+    """
+    import overlay  # noqa: PLC0415
+
     try:
-        data = json.loads(DEVIATIONS.read_bytes().decode("utf-8"))
-    except (OSError, ValueError):
+        data = overlay.deviations(ea_db.REPO_ROOT)
+    except overlay.OverlayUnreadable:
         return {}  # swallow: read by check_allowlist as "not approved", which refuses
     return data.get("deviations") or {}
 
@@ -114,7 +119,7 @@ def load_deviations() -> dict:
 def live_writes_approved(deviations: dict) -> tuple[bool, str]:
     gating = [(key, d) for key, d in deviations.items() if "live_doc_writes" in (d.get("gates") or [])]
     if not gating:
-        return False, ("context/architecture/deviations.json is unreadable or names no deviation gating "
+        return False, ("the deviation register is unreadable or names no deviation gating "
                        "live Doc writes, so none is treated as approved")
     pending = [key for key, d in gating if str(d.get("status")) != "approved"]
     if pending:

@@ -107,3 +107,18 @@ The roll call skips a dispatch a gate refused, reading the refusal from the tran
 (v2.1.222) for a refused Bash call, and the same session shows PreToolUse hooks firing on the Agent
 tool. A refused Agent call itself has not yet been seen live; the by-hand rows in INSTALL.md
 section 0 are where it is seen.
+
+## 14. Backing up what lives only on Taylor's laptop
+
+For Mike and Taylor. Everything Taylor decides and everything the system learns lives only on his
+laptop, outside git on purpose: his overlay (`state/taylor/`: his phase and deviation approvals,
+his Architecture Change Log, his own rules, his living blueprint, his name for the system, his
+lessons) and the register (`state/ea.db`: every action, topic, question and its history). A dead
+or replaced laptop loses all of it; the code comes back with one clone, his history does not.
+
+Where a backup may go is a privacy decision for Taylor, not a technical one: the register names
+his managers and their commitments, and the overlay holds his private rules and notes. no-cloud.py
+refuses every write into OneDrive, Dropbox, Google Drive or a mapped network drive, so today
+nothing in this system can make a backup, and none is made. Options to put to him: an encrypted
+USB copy he keeps, a private location he names (which needs a deliberate change to no-cloud.py),
+or none, accepting the loss. Undecided.

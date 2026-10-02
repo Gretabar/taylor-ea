@@ -26,12 +26,18 @@ WHAT IS ADDED HERE.
   status line does: one short line when healthy, a framed block when the tick is
   stale or has never run.
 
-  The change-log banner. protect-architecture.py lets a rules-text edit through
-  when Taylor typed `architecture change ok`, and CLAUDE.md obliges the
-  orchestrator to append a CHANGE-LOG bullet in the same turn. If the audit shows
-  an allowed rules edit newer than the log's last write, this says so, every turn,
-  until the log catches up. Skipped on the build machine, where edits are build
-  work rather than Taylor's architecture changes.
+  The change-log banner. protect-architecture.py lets an edit to Taylor's overlay
+  through when he typed `architecture change ok`, and CLAUDE.md obliges the
+  orchestrator to append a bullet to state/taylor/CHANGE-LOG.md in the same turn.
+  If the audit shows an allowed edit newer than the log's last write, this says so,
+  every turn, until the log catches up. Skipped on Mike's own build machine
+  (state/BUILD_MACHINE), and NOT in timed build mode on Taylor's laptop, where
+  Taylor's own changes still have to be logged.
+
+  The build-mode banner, first and framed. While state/BUILD_MODE is unexpired,
+  Mike is building on Taylor's laptop: code can change and dev agents can run.
+  Taylor must never be in build mode without seeing it, so every turn opens with it.
+  On Mike's own machine, where build mode is permanent, it is one line.
 
 ASCII rules only, and this banner never contains the literal override phrases: the
 gates look for them in the user's text, and banner text can be quoted back.
@@ -55,10 +61,19 @@ if str(HERE) not in sys.path:
 import _audit  # noqa: E402
 import _health  # noqa: E402
 from _activity import DISPATCHED, READ_ONLY, WROTE, verdict_for  # noqa: E402
-from _gate import REPO_ROOT, is_build_machine  # noqa: E402
+from _gate import REPO_ROOT  # noqa: E402
 
 RULE = "=" * 60
-CHANGE_LOG = REPO_ROOT / "context" / "architecture" / "CHANGE-LOG.md"
+
+
+def change_log_path() -> Path:
+    """Taylor's Architecture Change Log: state/taylor/CHANGE-LOG.md (scripts/overlay.py)."""
+    scripts = str(REPO_ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import overlay  # noqa: PLC0415
+
+    return overlay.path("CHANGE-LOG.md", REPO_ROOT)
 
 # Quoted word for word in docs/FOR-TAYLOR.md. Change both or neither.
 READ_ONLY_LINE = "TEAM  |  read only, nothing written"
@@ -120,12 +135,31 @@ def tick_line() -> str:
     ])
 
 
+def build_banner() -> str:
+    """BUILD MODE, loudly, while it is on. Empty when off (an expired marker is off)."""
+    mode = _health.build_mode()
+    if not mode.on:
+        return ""
+    if mode.source == "machine":
+        return "BUILD MACHINE  |  state/BUILD_MACHINE names this host: build mode never expires here"
+    return "\n".join([
+        RULE,
+        _health.build_mode_text(mode),
+        RULE,
+        "Mike is building on this machine. Until then code can be",
+        "changed here and dev agents (Explore, Plan, reviewers) can",
+        "be dispatched. Agents that are not switched on stay off.",
+        "End it now from a terminal: scripts\\build_mode.ps1 off",
+        RULE,
+    ])
+
+
 def change_log_banner() -> str:
-    """Loud when an allowed rules-text edit is newer than the CHANGE-LOG's last write."""
-    if is_build_machine():
+    """Loud when an allowed edit to Taylor's overlay is newer than his CHANGE-LOG's last write."""
+    if _health.build_mode().source == "machine":
         return ""
     try:
-        logged = datetime.fromtimestamp(CHANGE_LOG.stat().st_mtime, tz=timezone.utc)
+        logged = datetime.fromtimestamp(change_log_path().stat().st_mtime, tz=timezone.utc)
     except OSError:
         logged = datetime.min.replace(tzinfo=timezone.utc)
     db = _health.db_path()
@@ -158,7 +192,7 @@ def change_log_banner() -> str:
         "ARCHITECTURE CHANGED WITHOUT A CHANGE-LOG ENTRY",
         RULE,
         f"edited: {str(row[1])[:80]} at {row[0]}",
-        "Append one bullet to context/architecture/CHANGE-LOG.md",
+        "Append one bullet to state/taylor/CHANGE-LOG.md",
         "in its stated format, describing what Taylor asked for.",
         RULE,
     ])
@@ -178,7 +212,7 @@ def team_block(transcript_path: str | None) -> str:
 
 def rollcall(payload: dict) -> str:
     team = team_block(payload.get("transcript_path"))
-    blocks = [b for b in (audit_banner(), change_log_banner(), tick_line(), team) if b]
+    blocks = [b for b in (build_banner(), audit_banner(), change_log_banner(), tick_line(), team) if b]
     return "\n".join(blocks)
 
 

@@ -197,28 +197,20 @@ def repo_relative(path: str) -> str:
     return rel.replace("\\", "/")
 
 
-BUILD_MARKER = REPO_ROOT / "state" / "BUILD_MACHINE"
-
-
 def is_build_machine() -> bool:
-    """True only on the machine this repo is built on (Mike's), never on Taylor's.
+    """True while this machine may change code: build mode is on (_health.build_mode).
 
-    The marker is state/BUILD_MACHINE, created by hand outside Claude Code, holding
-    the build machine's hostname on its first line. Both halves are required: the
-    file must exist AND name THIS host. A marker that travelled on a USB copy of the
-    whole folder therefore opens nothing on Taylor's laptop. state/ is gitignored and
-    never in the kit, and protect-architecture.py refuses any tool call that writes
-    the marker, so a session cannot mint one.
+    Two markers, both created outside Claude Code: state/BUILD_MACHINE names Mike's own
+    machine and never expires; state/BUILD_MODE names this host and carries an expiry,
+    written by scripts/build_mode.ps1 on Taylor's laptop while Mike builds there. Both
+    must name THIS host, so a marker copied with the folder opens nothing elsewhere, and
+    an expired one is OFF. state/ is gitignored, and protect-architecture.py refuses any
+    tool call that writes either marker or runs build_mode.ps1, so a session cannot
+    mint one by any command that names it.
     """
-    import socket  # noqa: PLC0415
+    from _health import build_mode  # noqa: PLC0415
 
-    try:
-        first = BUILD_MARKER.read_bytes().decode("utf-8", errors="replace").strip().splitlines()
-    except OSError:
-        return False
-    if not first:
-        return False
-    return first[0].strip().lower() == socket.gethostname().strip().lower()
+    return build_mode().on
 
 
 def invokes_script(command: str, stem: str) -> bool:

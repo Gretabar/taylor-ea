@@ -14,13 +14,14 @@
     "",
     "`delivery: true` marks the one agent allowed to run scripts/docs_edit.py and `privacy: true`",
     "the one allowed to run scripts/privacy_review.py. `read_only: true` marks an agent whose shell",
-    "is confined to prep.py and the register's read subcommands (confine-read-only-agent.py). The",
-    "hooks that enforce them hardcode the same names on purpose, and the guardrail self-test",
-    "checks the two still agree."
+    "is confined to prep.py and the register's read subcommands (confine-read-only-agent.py), and",
+    "`lessons: true` the one allowed to record what the system learns (scripts/lessons.py,",
+    "require-lessons-agent.py). The hooks that enforce them hardcode the same names on purpose,",
+    "and the guardrail self-test checks the two still agree."
   ],
   "orchestrator": {"command": "NAME", "phase": 1, "lane": "dispatch, reality-checker, deviation memos, Needs Your Input"},
   "agents": [
-    {"name": "REED", "phase": 1, "model": "opus", "lane": "Action Register",
+    {"name": "REED", "phase": 1, "model": "opus", "lane": "Action Register", "lessons": true,
      "specialty": "Topic or commitment, owner and date resolution, history, retrieval"},
     {"name": "PAGE", "phase": 1, "model": "sonnet", "lane": "running Docs",
      "specialty": "Read structure, pick the section, write the edit proposal"},
@@ -54,7 +55,7 @@
       "machine. A key is a phase ('phase 2') or a deviation ('D-4'); `accepted` is the date",
       "its acceptance passed on fixtures, and `evidence` the report that shows it (the report",
       "stays on the build machine). A key that is absent is not built. This file is code: it",
-      "changes only on the machine state/BUILD_MACHINE names."
+      "changes only in build mode (state/BUILD_MACHINE, or an unexpired state/BUILD_MODE)."
     ],
     "phase 1": {"accepted": "2026-10-01", "evidence": "docs/acceptance/P1-2026-10-01.md"},
     "D-3": {"accepted": "2026-10-01", "evidence": "docs/acceptance/P1-2026-10-01.md, LARK prep leg"}

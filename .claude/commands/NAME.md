@@ -20,15 +20,15 @@ Read `CLAUDE.md`. Do NOT read or paste the whole blueprint: read the one section
   instruction.
 - **A lane that is not switched on** (transcripts, documentation records, projects, reservation
   replies, calendar changes, the 7am brief, a sales pipeline, reporting): find its agent in the
-  team table below, run `python scripts/team.py --agent <NAME>`, and relay the two lines it prints,
+  team table below, run `python scripts/team.py --agent <AGENT>`, and relay the two lines it prints,
   exactly. Do not dispatch that agent and do not improvise its work.
 
 ## Step 1.5: the gate
 
 Run the **reality-checker** skill (premise, over-build, existing record, source of truth), and one
 more question: **does this change a protected requirement, a rule in CLAUDE.md, or how this
-system works?** If yes, change nothing. Write a proposal into `docs/DEVIATIONS.md` (the change,
-why it helps, what it affects) and ask Taylor to approve it. An architecture change happens only
+system works?** If yes, change nothing. Write a proposal into `state/taylor/proposals.md` (the
+change, why it helps, what it affects) and ask Taylor to approve it. An architecture change happens only
 when Taylor's own message carries the approval phrase in CLAUDE.md; a change that needs code is a
 request for Mike, never something you claim is live. SAGE can give a one-paragraph G1 or G2
 judgement when a case is close.
@@ -46,7 +46,10 @@ acknowledgements and `/boi`.
   `python scripts/register.py history <ref>`, `python scripts/register.py morning`.
 - A register question that needs judgement ("what did I promise Casey about the bonus?"): **REED**.
 - What a Doc says: **PAGE** (`python scripts/docs_read.py --doc <id>`).
-- "Prep me for Kaed": **LARK**, always. It is read only and shows Taylor's part first.
+- "Prep me for Kaed": **LARK**, always. It is read only and gives the full briefing, Taylor's
+  part first.
+- "Show me what you've learned": run `python scripts/lessons.py list` yourself (a read) and relay
+  it as printed.
 
 **CAPTURE** (anything that records or changes something):
 
@@ -60,6 +63,14 @@ WREN  apply and read back      (docs_edit.py)
 REED alone when nothing needs to reach a Doc (a completion Taylor only wants recorded). PAGE and
 WREN for every record that must appear in a Doc. "Everyone's next 1:1" is one proposal and one
 delivery per person; each succeeds or fails on its own.
+
+**LEARN** (blueprint section 1, "Learning and corrections"): when Taylor corrects how something is
+done or says how he likes it ("answer first", "Kaed's bar items go under Action Items", "Kade is
+Kaed"), dispatch **REED** with his words; REED records it with `scripts/lessons.py`, and it is in
+effect from the next session. "Forget <x>" and his answer to a rule question go to REED too. A
+lesson that would set a price, package, minimum spend, discount, policy, sending permission or
+rule is never in effect from one instance: the script holds it, asks him once through Needs Your
+Input, and applies it only on his yes. Do not apply such a thing meanwhile, and do not ask again.
 
 Stuck, failed, expired, or a gate that looks wrong: **HUGO**.
 
@@ -85,24 +96,32 @@ live state. At handover:
 | TALLY | reporting | 6, deferred (D-5) | not switched on | never; relay its lines |
 
 **Never dispatch an agent that is not switched on.** Relay what `python scripts/team.py --agent
-<NAME>` prints, word for word, and nothing else about it. A hook (`require-active-agent.py`) refuses
+<AGENT>` prints, word for word, and nothing else about it. A hook (`require-active-agent.py`) refuses
 such a dispatch anyway, at no cost, and prints the same two lines: relay those if it fires. It also
-refuses agents that are not on the team (Explore, general-purpose, a fork) and workflows. TALLY
-never prompts Taylor about Phase 6; the blueprint's one question at the initial build closeout is
-the only one.
+refuses workflows, and agents that are not on the team (Explore, general-purpose, a fork) except
+in Mike's build mode. TALLY never prompts Taylor about Phase 6; the blueprint's one question at the
+initial build closeout is the only one.
 
 ## Switching a phase on (Taylor's words only)
 
 When Taylor's own message says `architecture change ok: switch on Phase <n>` (or `resume Phase 6`,
-or `add PENN`), that is an architecture change in his authority:
+or `add PENN`), that is an architecture change in his authority. His decisions live in his
+overlay, `state/taylor/`, which `git pull` never touches; the tracked files under
+`context/architecture/` are upstream defaults and refuse the edit:
 
-- `switch on Phase <n>`: in `context/architecture/phases.json` set that phase's `approved` to
-  true and `approved_at` to the date and time. `resume Phase 6` also sets `deferred` to false.
-- `add PENN`: in `context/architecture/deviations.json` set D-4's `status` to approved, with
-  `approved_by` Taylor and `approved_at`.
-- `approve D-<n>` or `reject D-<n>`: set that deviation's `status` to approved or rejected, with
-  `approved_by` and `approved_at`. Rejecting D-3 switches LARK's prep off at once.
-- In the same turn, append one bullet to `context/architecture/CHANGE-LOG.md` in its format.
+- `switch on Phase <n>`: in `state/taylor/phases.json`, under `phases`, add `"<n>": {"approved":
+  true, "decided": "<date and time>", "said": "<his words>"}`. `resume Phase 6` also sets
+  `"deferred": false`.
+- `add PENN`: in `state/taylor/deviations.json`, under `deviations`, add `"D-4": {"status":
+  "approved", "decided": "<date and time>", "said": "<his words>"}`.
+- `approve D-<n>` or `reject D-<n>`: the same, with status approved or rejected. Rejecting D-3
+  switches LARK's prep off at once.
+- A change to one of his rules: one bullet in `state/taylor/rules.md`. A change to his blueprint:
+  `state/taylor/blueprint.md`, his living copy (the v1 baseline in `context/architecture/` is
+  never edited).
+- In the same turn, append one bullet to `state/taylor/CHANGE-LOG.md` in its format.
+- Keep each file's `"ea-class": "private"` key or `ea-class: private` line, and keep JSON valid:
+  `python scripts/overlay.py status` reads it back.
 
 Then tell Taylor it is approved and that Mike builds it; until then the agent answers APPROVED, NOT
 BUILT YET. It goes live only when Mike's build is accepted, never because the phrase was said.

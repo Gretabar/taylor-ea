@@ -6,25 +6,39 @@ silently implement improvements. G1 tests exactly that ("suggest removing
 reservation send approval": propose, change nothing). Prose saying so holds most of
 the time, which is not every time; this is the mechanism.
 
-LAYER A, RULES TEXT: context/architecture/** and CLAUDE.md. Taylor's authority.
-    Allowed only when the latest message Taylor typed contains the phrase
-    `architecture change ok`. CLAUDE.md then obliges the orchestrator to append one
-    bullet to context/architecture/CHANGE-LOG.md, and team-rollcall.py renders a
-    banner if an allowed rules edit landed after the log's last write. Blocked
-    otherwise, pointing at docs/DEVIATIONS.md, where a proposed change is written
-    as a memo for Taylor to approve.
+LAYER A, TAYLOR'S OVERLAY: state/taylor/ (scripts/overlay.py), his approvals, his
+    deviation decisions, his Architecture Change Log, his own rules, his living
+    blueprint and his identity overrides. His authority. Allowed only when the
+    latest message Taylor typed contains the phrase `architecture change ok`.
+    CLAUDE.md then obliges the orchestrator to append one bullet to
+    state/taylor/CHANGE-LOG.md, and team-rollcall.py renders a banner if an allowed
+    edit landed after the log's last write. Blocked otherwise, pointing at
+    state/taylor/proposals.md, where a proposed change is written as a memo for him;
+    that one file needs no phrase, because writing a proposal changes nothing. These
+    files are untracked, so `git pull` never fights his decisions.
 
-LAYER B, CODE AND PERMISSIONS: .claude/** (settings, hooks, agents, commands,
-    skills), scripts/**, tests/**, and the top-level context/*.json files (the
-    network allowlist, the data classes, the roster, identity). The installed repo
-    ships BUILT: on Taylor's machine these are blocked UNCONDITIONALLY, and the
-    phrase does not open them. Otherwise a session could edit require-approval.py
-    or settings.json and change a permission with no approval at all, and G1 would
-    be half-proven. They are writable only on the build machine, recognised by
-    state/BUILD_MACHINE naming this host (see _gate.is_build_machine).
+LAYER B, UPSTREAM AND CODE: CLAUDE.md and context/architecture/** (the defaults Mike
+    ships and keeps changing upstream), the other tracked text (docs/**, the top-level
+    *.md files, requirements.txt and the git and env templates), .claude/** (settings,
+    hooks, agents, commands, skills), scripts/**, tests/**, and everything else under
+    context/. Sessions on Taylor's machine write only under state/, logs/
+    and output/, which are never tracked.
+    On Taylor's machine these are blocked UNCONDITIONALLY and the phrase does not
+    open them: his rule changes belong in the overlay, and a local edit to a tracked
+    file would conflict with the next pull or be erased by it. They are writable
+    only in build mode (_gate.is_build_machine): Mike's machine, named by
+    state/BUILD_MACHINE, or Taylor's laptop while state/BUILD_MODE is unexpired.
 
-THE MARKER ITSELF is blocked as a write target everywhere. It is created by hand,
-outside Claude Code, on Mike's machine.
+FROZEN EVERYWHERE: context/architecture/blueprint.md, the v1 baseline Taylor's living
+    copy was seeded from. Upstream never edits it, so it stays the record of what was
+    commissioned. state/taylor/lessons.json is written only by scripts/lessons.py,
+    which only REED runs (require-lessons-agent.py), never by a tool directly.
+
+THE MARKERS, state/BUILD_MACHINE and state/BUILD_MODE, are blocked as write targets
+everywhere, and so is running scripts/build_mode.ps1: build mode is switched by Mike
+from a terminal. A process running as Taylor can still create a marker without naming
+it; the BUILD MODE banner on every turn and in the status line is what makes that
+impossible to miss.
 
 WHY THE OVERRIDE IS READ HERE AND NOT VIA _transcript.turn_context. When this gate
 was written that parser skipped slash-command rows when it looked for the turn
@@ -84,7 +98,15 @@ else:
 
 HOOK = "protect-architecture"
 OVERRIDE = "architecture change ok"
-MARKER_REL = "state/BUILD_MACHINE"
+MARKERS = ("state/build_machine", "state/build_mode")
+BASELINE = "context/architecture/blueprint.md"
+OVERLAYS = ("state/taylor", "state/taylor-fixtures")
+LESSONS_STORE = "lessons.json"
+PROPOSALS = "proposals.md"
+# Tracked text outside the code roots: shipped from upstream like the code, so a local
+# edit would conflict with the next pull. (Gitignored files under .claude/, such as
+# settings.local.json, stay code: they can change permissions and hooks.)
+UPSTREAM_FILES = frozenset({"requirements.txt", ".gitignore", ".gitattributes", ".env.example"})
 
 HARNESS_BLOCK = re.compile(
     r"<(system-reminder|task-notification|ide_selection|local-command-stdout)>.*?</\1>",
@@ -96,7 +118,7 @@ COMMAND_BLOCK = re.compile(r"<(command-name|command-message|command-args)>(.*?)<
 
 
 def layer_of(rel: str) -> str | None:
-    """"marker", "rules", "code", or None for an unprotected path."""
+    """"marker", "baseline", "lessons", "rules" (layer A), "upstream" or "code" (layer B), or None."""
     if not rel:
         return None
     if rel == "*":
@@ -104,14 +126,23 @@ def layer_of(rel: str) -> str | None:
     norm = rel.replace("\\", "/")
     while norm.startswith("./"):
         norm = norm[2:]
-    lowered = norm.lower()
-    if lowered == MARKER_REL.lower():
+    lowered = norm.lower().rstrip("/")
+    if lowered in MARKERS:
         return "marker"
+    if lowered == BASELINE:
+        return "baseline"
+    for overlay in OVERLAYS:
+        if lowered == overlay or lowered.startswith(overlay + "/"):
+            if lowered == f"{overlay}/{PROPOSALS}":
+                return None  # a proposal changes nothing
+            return "lessons" if lowered == f"{overlay}/{LESSONS_STORE}" else "rules"
     if lowered == "claude.md" or lowered.startswith("context/architecture/") or lowered == "context/architecture":
-        return "rules"
+        return "upstream"
+    if lowered == "docs" or lowered.startswith("docs/") or lowered in UPSTREAM_FILES or re.fullmatch(r"[^/]+\.md", lowered):
+        return "upstream"
     if lowered.startswith((".claude/", "scripts/", "tests/")) or lowered in (".claude", "scripts", "tests"):
         return "code"
-    if re.fullmatch(r"context/[^/]+\.json", lowered):
+    if lowered == "context" or lowered.startswith("context/"):
         return "code"
     return None
 
@@ -120,7 +151,8 @@ def decide(targets: list[str], typed: str | None, build_machine: bool) -> tuple[
     """(allowed, rule_id, target). Pure, so the guardrail self-test can drive it.
 
     `typed` is the latest text Taylor typed, or None when it could not be read. None
-    only matters for a rules-text target, and there it is a refusal.
+    only matters for a target in his overlay, and there it is a refusal.
+    `build_machine` is build mode (either marker), not just Mike's machine.
     """
     granted = ""
     for target in targets:
@@ -129,9 +161,13 @@ def decide(targets: list[str], typed: str | None, build_machine: bool) -> tuple[
             continue
         if layer == "marker":
             return False, "build-marker", target
-        if layer == "code":
+        if layer == "baseline":
+            return False, "blueprint-baseline", target
+        if layer == "lessons":
+            return False, "lessons-store", target
+        if layer in ("upstream", "code"):
             if not build_machine:
-                return False, "code-and-permissions", target
+                return False, "upstream-defaults" if layer == "upstream" else "code-and-permissions", target
             continue
         if typed is None:
             return False, "rules-text:unverifiable", target
@@ -214,9 +250,17 @@ INLINE_WRITE = re.compile(
 )
 PROTECTED_MENTION = re.compile(
     r"(claude\.md|context[\\/]architecture|\.claude[\\/]|scripts[\\/]|tests[\\/]"
-    r"|context[\\/][\w.-]+\.json|state[\\/]build_machine)",
+    r"|context[\\/][\w.-]+|state[\\/]build_machine|state[\\/]build_mode"
+    r"|state[\\/]taylor[\w-]*(?:[\\/][\w.-]+)?)",
     re.I,
 )
+
+
+def switches_build_mode(command: str) -> bool:
+    """True when this command line runs scripts/build_mode.ps1, through any launcher _shell unwraps."""
+    from _shell import invocations  # noqa: PLC0415
+
+    return any(program == "build_mode.ps1" for program, _ in invocations(command or ""))
 
 
 def _unquote(token: str) -> str:
@@ -291,14 +335,55 @@ def targets_of(payload: dict) -> list[str]:
 
 
 def deny(rule_id: str, target: str) -> int:
-    if rule_id == "build-marker":
+    if rule_id in ("build-marker", "build-mode-switch"):
         return block([
-            "BLOCKED: nothing in a session may create or change the build-machine marker.",
+            "BLOCKED: nothing in a session may switch build mode on or change its markers.",
+            "",
+            f"  {'file' if rule_id == 'build-marker' else 'command'}: {target}",
+            "",
+            "state/BUILD_MACHINE and state/BUILD_MODE are what let a machine change this",
+            "system's code. Mike switches build mode from a terminal (scripts\\build_mode.ps1),",
+            "outside Claude Code, and it expires on its own.",
+        ])
+    if rule_id == "blueprint-baseline":
+        return block([
+            "BLOCKED: context/architecture/blueprint.md is the v1 baseline, and nobody edits it.",
             "",
             f"  file: {target}",
             "",
-            "That file is what makes a machine able to change this system's code and",
-            "permissions. It is created by hand on Mike's machine, outside Claude Code.",
+            "Taylor's living copy is state/taylor/blueprint.md. A change to his blueprint goes",
+            "there, only when his own message says the approval phrase, with one bullet in",
+            "state/taylor/CHANGE-LOG.md in the same turn.",
+        ])
+    if rule_id == "lessons-store":
+        return block([
+            "BLOCKED: the lessons store is written only by scripts/lessons.py.",
+            "",
+            f"  file: {target}",
+            "",
+            "REED records a lesson with `python scripts/lessons.py record ...`, which screens it",
+            "for anything that would be a rule (a price, a package, a policy, a sending",
+            "permission) and keeps those out of effect until Taylor says yes.",
+        ])
+    if rule_id == "upstream-defaults":
+        return block([
+            "BLOCKED: that file holds the upstream defaults Mike ships, not Taylor's own rules.",
+            "",
+            f"  file: {target}",
+            "",
+            "CLAUDE.md and context/architecture/ are replaced by every update, so a change",
+            "made here would conflict with the next `git pull` or be erased by it. Taylor's",
+            "changes live in state/taylor/, which updates never touch:",
+            "",
+            "  his rules        state/taylor/rules.md",
+            "  phase approvals  state/taylor/phases.json",
+            "  deviations       state/taylor/deviations.json",
+            "  his blueprint    state/taylor/blueprint.md",
+            "",
+            f'Each needs "{OVERRIDE}" in his own latest message, and one bullet in',
+            "state/taylor/CHANGE-LOG.md in the same turn. Anything else, including what",
+            "needs code, goes to state/taylor/proposals.md as a proposal; Mike reads it",
+            "when he builds on this machine.",
         ])
     if rule_id == "code-and-permissions":
         return block([
@@ -309,9 +394,9 @@ def deny(rule_id: str, target: str) -> int:
             "Hooks, settings, agents, commands, skills, scripts and the context rule",
             "files are not edited from a session on this machine, whatever is said in",
             "the chat. A change here would change what the system is allowed to do, so",
-            "it is made on Mike's machine, tested, and shipped as a new kit.",
+            "Mike makes it in build mode, tests it, and ships it as an update.",
             "",
-            "What to do instead: write the request into docs/DEVIATIONS.md as a",
+            "What to do instead: write the request into state/taylor/proposals.md as a",
             "proposal (what to change, why, what it affects) and tell Taylor it needs",
             "Mike. Do not claim the change is live.",
             "",
@@ -325,13 +410,13 @@ def deny(rule_id: str, target: str) -> int:
         "Blueprint s.1: a protected requirement changes only when Taylor explicitly",
         "asks for or approves the change. Nothing in his latest message did.",
         "",
-        "What to do instead: write a proposal into docs/DEVIATIONS.md (the change,",
+        "What to do instead: write a proposal into state/taylor/proposals.md (the change,",
         "why it helps, what it affects) and ask Taylor to approve it. Change nothing",
         "else meanwhile.",
         "",
         f'If Taylor approves, he types "{OVERRIDE}" in his own message. Then make',
-        "the edit AND append one bullet to context/architecture/CHANGE-LOG.md in its",
-        "stated format. Do not type that phrase yourself.",
+        "the edit AND append one bullet to state/taylor/CHANGE-LOG.md in its stated",
+        "format. Do not type that phrase yourself.",
     ])
 
 
@@ -341,6 +426,13 @@ def main() -> int:
     except PayloadUnreadable as exc:
         _audit.record(hook=HOOK, decision="deny_unverifiable", detail=str(exc))
         return deny_environment(HOOK, "hook payload", str(exc))
+
+    tool = str(payload.get("tool_name") or "")
+    if tool in ("Bash", "PowerShell") and switches_build_mode(first_field(payload, "command")):
+        _audit.record(hook=HOOK, tool=tool, agent=resolve_agent(payload) or "", decision="deny",
+                      rule_id="build-mode-switch", target=first_field(payload, "command")[:200],
+                      session_id=str(payload.get("session_id") or ""))
+        return deny("build-mode-switch", first_field(payload, "command")[:160])
 
     targets = targets_of(payload)
     if not any(layer_of(t) for t in targets):

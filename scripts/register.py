@@ -58,7 +58,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ea_db  # noqa: E402
 
 REPO_ROOT = ea_db.REPO_ROOT
-IDENTITY_PATH = REPO_ROOT / "context" / "identity.json"
 ROSTER_PATH = REPO_ROOT / "context" / "roster.json"
 PRIVATE_NOTES = REPO_ROOT / "state" / "private" / "notes.md"
 FIXTURE_PRIVATE_NOTES = REPO_ROOT / "state" / "private" / "fixture-notes.md"
@@ -91,10 +90,13 @@ class RegisterError(Exception):
 # ---------------------------------------------------------------------------
 
 def identity() -> dict:
+    """context/identity.json with Taylor's overrides (state/taylor/identity.json) laid over it."""
+    import overlay  # noqa: PLC0415
+
     try:
-        return json.loads(IDENTITY_PATH.read_bytes().decode("utf-8"))
-    except (OSError, ValueError) as exc:
-        raise RegisterError(f"context/identity.json is unreadable ({exc}); the owner and the "
+        return overlay.identity(REPO_ROOT)
+    except overlay.OverlayUnreadable as exc:
+        raise RegisterError(f"the identity file is unreadable ({exc}); the owner and the "
                             f"timezone cannot be known, so nothing is recorded") from exc
 
 
@@ -1123,6 +1125,11 @@ def main() -> int:
                 row = conn.execute("SELECT * FROM needs_input WHERE ref = ?", (args.ref.upper(),)).fetchone()
                 if row is None:
                     raise RegisterError(f"no question {args.ref}")
+                if row["source_kind"] == "lesson" and row["status"] == "open":
+                    # Resolved here, his yes would close the question and never adopt the rule.
+                    raise RegisterError(f"{row['ref']} asks whether {row['source_ref']} becomes a rule; record "
+                                        f"Taylor's answer with python scripts/lessons.py answer {row['source_ref']} "
+                                        f"--yes (or --no), which closes this question too")
                 with conn:
                     conn.execute("UPDATE needs_input SET status='resolved', resolved_at=?, resolution=? WHERE id=?",
                                  (ea_db.now_iso(), f"{args.actor}: {args.answer}", row["id"]))

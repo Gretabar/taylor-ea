@@ -785,8 +785,11 @@ def main() -> int:
 
     os.chdir(ROOT)
     agent_paths = sorted(p.replace("\\", "/") for p in glob.glob(".claude/agents/*.md"))
+    # taylor-front-door is generated on Taylor's machine from .claude/commands/NAME.md (scripts/overlay.py
+    # name), gitignored, and checked as that command; a copy is not a second contract.
     skill_paths = sorted(p.replace("\\", "/") for p in
-                         set(glob.glob(".claude/skills/*/SKILL.md")) | set(glob.glob(".claude/skills/*/*/SKILL.md")))
+                         set(glob.glob(".claude/skills/*/SKILL.md")) | set(glob.glob(".claude/skills/*/*/SKILL.md"))
+                         if "taylor-front-door" not in p.replace("\\", "/"))
     command_paths = sorted(p.replace("\\", "/") for p in glob.glob(".claude/commands/*.md"))
     if not agent_paths:
         print("No agents found under .claude/agents/.")

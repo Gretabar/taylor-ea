@@ -82,7 +82,14 @@ def refused(raw_type: str) -> bool:
             sys.path.insert(0, scripts)
         import team  # noqa: PLC0415
 
-        allowed, _, _ = team.dispatch_verdict(team.load(REPO_ROOT), raw_type)
+        allowed, rule_id, _ = team.dispatch_verdict(team.load(REPO_ROOT), raw_type)
+        if not allowed and rule_id.startswith("not-on-roster:"):
+            hooks = str(Path(__file__).resolve().parent)
+            if hooks not in sys.path:
+                sys.path.insert(0, hooks)
+            from _health import build_mode  # noqa: PLC0415
+
+            return not build_mode().on  # a dev agent in build mode is dispatched, so it is announced
         return not allowed
     except Exception:
         return True  # swallow: the gate refuses whatever it cannot check, so there is nothing to announce

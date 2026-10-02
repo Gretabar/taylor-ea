@@ -297,6 +297,11 @@ def main() -> int:
         import ea_db  # noqa: PLC0415
 
         digest = approvals.payload_hash(tool_name, tool_input(payload))
+        if not Path(ea_db.DB_PATH).exists():
+            # Never create the register here: opening it would leave an empty state/ea.db with
+            # no tables, which prep.py and the doctor would then meet as a register nobody set up.
+            # No register means no approval, so this is a refusal either way.
+            raise FileNotFoundError(f"the register {ea_db.DB_PATH} does not exist yet, so no approval can be on it")
         conn = ea_db.connect()
     except Exception as exc:  # noqa: BLE001
         # swallow: converted immediately into a blocking refusal. An egress gate

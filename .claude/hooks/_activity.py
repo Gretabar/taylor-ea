@@ -56,6 +56,8 @@ WHAT COUNTS AS WRITING.
     scripts/link_docs.py      any flag outside LINK_DOCS_READS (--add, --set-map, and
                               --confirm, which unlocks live writes to that Doc)
     scripts/calendar_next.py  any flag outside CALENDAR_READS (--link-series)
+    scripts/lessons.py        any subcommand except the readers in LESSONS_READS (list,
+                              context): a lesson is loaded into every later session
   or that imports one of those modules inline, or runs a SQL write statement against
   the register database (there is no delete subcommand, so a delete would go that way).
 
@@ -108,7 +110,8 @@ REGISTER_READS = frozenset({"owed", "history", "morning", "resolve-date", "resol
 NEEDS_INPUT_READS = frozenset({"list"})
 LINK_DOCS_READS = frozenset({"--status", "--verify", "--detect", "--person", "--doc", "--map-file"})
 CALENDAR_READS = frozenset({"--status", "--refresh", "--discover", "--person", "--days", "--calendar"})
-WATCHED = ALWAYS_WRITES | {"register", "link_docs", "calendar_next"}
+LESSONS_READS = frozenset({"list", "context"})
+WATCHED = ALWAYS_WRITES | {"register", "link_docs", "calendar_next", "lessons"}
 
 # Programs that read a file named on their command line without running it, so a
 # watched script named after one is an argument: `grep -n add-action scripts/register.py`.
@@ -127,7 +130,8 @@ QUOTES = str.maketrans({'"': " ", "'": " ", "`": " "})
 WRAPPING = "()[]{}$@,"
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
 INLINE_IMPORT = re.compile(
-    r"\b(?:import|from)\s+(?:scripts\.)?(?:docs_edit|docs_propose|privacy_review|register|link_docs|calendar_next)\b")
+    r"\b(?:import|from)\s+(?:scripts\.)?(?:docs_edit|docs_propose|privacy_review|register|link_docs|calendar_next"
+    r"|lessons)\b")
 REGISTER_DB = re.compile(r"\b(?:ea|fixtures)\.db\b|\bea_db\b", re.I)
 SQL_WRITE = re.compile(
     r"\b(?:INSERT\s+(?:OR\s+\w+\s+)?INTO|REPLACE\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM"
@@ -189,6 +193,9 @@ def _run_writes(stem: str, args: list[str]) -> bool:
         if words[0] == "needs-input":
             return len(words) > 1 and words[1] not in NEEDS_INPUT_READS
         return words[0] not in REGISTER_READS
+    if stem == "lessons":
+        words = [a.lower() for a in args if a and not a.startswith("-")]
+        return not words or words[0] not in LESSONS_READS
     flags = {a.split("=", 1)[0].lower() for a in args if a.startswith("--")}
     return bool(flags - (LINK_DOCS_READS if stem == "link_docs" else CALENDAR_READS))
 

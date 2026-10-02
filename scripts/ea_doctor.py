@@ -10,9 +10,13 @@ It never fixes anything, and touches the network only for the checks that are ab
 
 WHAT CHANGED FROM PIPER. Google instead of PIPER's own systems: client and token present, refresh with
 the Phase 1 scopes, every registered Doc readable and editable, the Calendar reachable. The repo
-location is checked against context/identity.json. The scheduled task is EA-Tick and its battery
-flags are read back. The build-machine marker is reported, because on Taylor's machine it must not
-exist. Deviation D-1's status is shown, because it decides whether any live Doc can be written.
+location is checked against the identity in effect (context/identity.json, overridden for this
+machine in state/taylor/identity.json). The scheduled task is EA-Tick and its battery flags are read
+back. Build mode is a WARN while it is on, so Taylor's laptop is never left able to change code
+without it showing. Taylor's overlay is checked (scripts/overlay.py): seeded, readable, no legacy
+decision left in a tracked file, and no tracked file changed locally, which would make the next
+`git pull` refuse. Deviation D-1's status is shown, because it decides whether any live Doc can be
+written.
 The team is counted (scripts/team.py), and an agent that is on while its phase is not accepted is
 a WARN, so LARK running ahead of Phase 3 under D-3 stays visible until Taylor decides.
 
@@ -91,14 +95,17 @@ def check_prerequisites(report: Report) -> None:
 
 
 def check_location(report: Report) -> None:
+    import overlay  # noqa: PLC0415
+
     try:
-        identity = json.loads((REPO_ROOT / "context" / "identity.json").read_bytes().decode("utf-8"))
+        identity = overlay.identity(REPO_ROOT)
         expected = Path(identity.get("repo_root") or "")
         same = os.path.normcase(str(expected.resolve())) == os.path.normcase(str(REPO_ROOT.resolve()))
         report.add(OK if same else WARN, "repo path",
-                   f"{REPO_ROOT}" + ("" if same else f" but identity.json says {expected}: update repo_root"))
-    except (OSError, ValueError) as exc:
-        report.add(FAIL, "repo path", f"context/identity.json unreadable: {exc}")
+                   f"{REPO_ROOT}" + ("" if same else f" but the identity says {expected}: run "
+                                                     f"python scripts/overlay.py init on this machine"))
+    except overlay.OverlayUnreadable as exc:
+        report.add(FAIL, "repo path", f"identity unreadable: {exc}")
     try:
         hook = load_hook("no-cloud.py")
         reason = hook.classify_path(str(REPO_ROOT / "state" / "ea.db"))
@@ -106,12 +113,64 @@ def check_location(report: Report) -> None:
                    f"{reason}. MOVE THE REPO to the root of C: before anything else" if reason else "the register is outside every sync root")
     except Exception as exc:  # noqa: BLE001
         report.add(FAIL, "not cloud-synced", f"could not run the check: {exc}")  # swallow: reported
-    import _gate  # noqa: PLC0415
+    import _health  # noqa: PLC0415
 
-    marker = _gate.BUILD_MARKER.exists()
-    report.add(WARN if marker else OK, "build-machine marker",
-               ("present: this machine may edit code and permissions; correct ONLY on Mike's build machine"
-                if marker else "absent: code and permissions are locked (correct for Taylor's machine)"))
+    mode = _health.build_mode()
+    if mode.on and mode.source == "machine":
+        report.add(WARN, "build mode", "permanent: state/BUILD_MACHINE names this host. Correct ONLY on Mike's "
+                                       "own machine")
+    elif mode.on:
+        report.add(WARN, "build mode", f"{_health.build_mode_text(mode)}: Mike is building; code may change "
+                                       f"and dev agents may run. Off: scripts\\build_mode.ps1 off")
+    else:
+        report.add(OK, "build mode", "off: code and permissions are locked"
+                   + (f" ({mode.note})" if mode.note else ""))
+
+
+def check_overlay(report: Report) -> None:
+    """Taylor's overlay: where his decisions live, so `git pull` never fights them (scripts/overlay.py)."""
+    import lessons  # noqa: PLC0415
+    import overlay  # noqa: PLC0415
+
+    root = overlay.overlay_dir(REPO_ROOT)
+    missing = [name for name in ("phases.json", "deviations.json", "identity.json", "CHANGE-LOG.md", "rules.md",
+                                 "blueprint.md", "lessons.json", "proposals.md")
+               if not overlay.path(name, REPO_ROOT).exists()]
+    report.add(WARN if missing else OK, "Taylor's overlay",
+               f"{root}: missing {', '.join(missing)}: run python scripts/overlay.py init" if missing
+               else f"{root}: seeded")
+    try:
+        overlay.phases(REPO_ROOT)
+        overlay.deviations(REPO_ROOT)
+        overlay.identity(REPO_ROOT)
+        report.add(OK, "overlay decisions", "readable")
+    except overlay.OverlayUnreadable as exc:
+        report.add(FAIL, "overlay decisions", f"unreadable, so every dispatch is refused: {exc}")
+    for key in overlay.orphaned_decisions(REPO_ROOT):
+        report.add(WARN, f"decision {key}", "Taylor decided it, but upstream no longer defines it: kept, not applied")
+    legacy = overlay.legacy_decisions(REPO_ROOT)
+    report.add(WARN if legacy else OK, "legacy decisions",
+               f"{len(legacy)} in tracked files: run python scripts/overlay.py migrate --restore" if legacy
+               else "none in tracked files")
+    try:
+        held = sum(1 for lesson in lessons.listing() if lesson["status"] in ("candidate", "asked"))
+        in_effect = sum(1 for lesson in lessons.listing() if lesson["status"] in lessons.ACTIVE)
+        report.add(OK, "lessons", f"{in_effect} in effect, {held} rule-candidate(s) held for Taylor's answer")
+    except lessons.LessonRefused as exc:
+        report.add(FAIL, "lessons", str(exc))
+    name = (overlay.identity(REPO_ROOT).get("system_name") or "").strip()
+    if name and name != "NAME":
+        door = REPO_ROOT / overlay.FRONT_DOOR
+        report.add(OK if door.exists() else WARN, "front door",
+                   f"/{name.lower()}" if door.exists() else f"/{name.lower()} missing: run python scripts/overlay.py init")
+    code, out = _run(["git", "status", "--porcelain", "--untracked-files=no"], timeout=60)
+    if code != 0:
+        report.add(WARN, "tracked files", f"git status could not run ({out[:120]}); a pull may meet local changes")
+    else:
+        changed = [line.split(None, 1)[-1] for line in out.splitlines() if line.strip()]  # XY path; _run strips
+        report.add(WARN if changed else OK, "tracked files",
+                   f"changed on this machine, so `git pull` will refuse: {', '.join(changed[:6])}" if changed
+                   else "unchanged since the last pull")
 
 
 def check_database(report: Report) -> None:
@@ -275,7 +334,8 @@ def main() -> int:
     print(f"EA doctor: {REPO_ROOT}")
     print(f"  {platform.platform()}\n")
     report = Report()
-    for step in (check_prerequisites, check_location, check_database, check_audit_and_deviations, check_team):
+    for step in (check_prerequisites, check_location, check_overlay, check_database, check_audit_and_deviations,
+                 check_team):
         try:
             step(report)
         except Exception as exc:  # noqa: BLE001

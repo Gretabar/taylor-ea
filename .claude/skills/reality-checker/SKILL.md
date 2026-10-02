@@ -35,8 +35,8 @@ Terse: 6 to 10 lines. A gate, not a planner. Cite the file behind a flag.
    Doc says (`python scripts/docs_read.py --doc <id>`); the Calendar for when a meeting is
    (`python scripts/calendar_next.py --status`). Never a summary from earlier in the chat.
 5. **Protected requirement.** Would this change a rule in `CLAUDE.md`, the blueprint, a permission,
-   or how the system works? Then the only action is a proposal in `docs/DEVIATIONS.md` and a
-   question to Taylor. Anchor: blueprint section 1 ("One master architecture").
+   or how the system works? Then the only action is a proposal in `state/taylor/proposals.md`
+   and a question to Taylor. Anchor: blueprint section 1 ("One master architecture").
 
 ## Output
 

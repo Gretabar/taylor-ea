@@ -275,8 +275,52 @@ def host_allowed(host: str, allowlist: list[str]) -> bool:
                for entry in allowlist)
 
 
+# git subcommands that send this repository, or patches from it, somewhere else.
+GIT_EGRESS = frozenset({"push", "send-pack", "send-email"})
+GIT_OPTIONS_WITH_VALUE = frozenset({"-c", "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+                                    "--config-env", "--super-prefix"})
+GIT_PUSH_ALIAS = re.compile(r"^alias\.[\w.-]+=!?\s*(?:git\s+)?(?:push|send-pack|send-email)\b", re.I)
+GIT_ALIAS_NAME = re.compile(r"^alias\.[\w.-]+$", re.I)
+GIT_PUSH_VALUE = re.compile(r"^!?\s*(?:git\s+)?(?:push|send-pack|send-email)\b", re.I)
+
+
+def git_egress(args: list[str]) -> bool:
+    """True when `git <args>` pushes: the subcommand past git's own options, or an alias that does
+    it, defined inline (-c alias.p=push) or stored for a later line (git config alias.p push)."""
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in GIT_OPTIONS_WITH_VALUE:
+            if arg == "-c" and i + 1 < len(args) and GIT_PUSH_ALIAS.match(args[i + 1]):
+                return True
+            i += 2
+            continue
+        if arg.startswith("-"):
+            i += 1
+            continue
+        if arg.lower() == "config":
+            rest = args[i + 1:]
+            return any(GIT_ALIAS_NAME.match(name) and GIT_PUSH_VALUE.match(value)
+                       for name, value in zip(rest, rest[1:]))
+        return arg.lower() in GIT_EGRESS
+    return False
+
+
 def classify_command(line: str, allowlist: list[str]) -> tuple[str, str] | None:
-    """(rule_id, reason) for the first refusal in this command line, or None."""
+    """(rule_id, reason) for the first refusal in this command line, or None.
+
+    Push and sync programs are found by _shell.invocations(), the parser every shell gate
+    shares, so `git -c x=y push`, `env git push`, `cmd /c git push` and `$r = git push`
+    are refused like `git push` itself. Build mode changes none of this: Mike pushes from
+    a terminal, never from a session.
+    """
+    from _shell import invocations  # noqa: PLC0415
+
+    for program, args in invocations(line):
+        if program == "git" and git_egress(args):
+            return "push-command", "`git push` sends this repository somewhere else"
+        if program in BLOCKED_FIRST_TOKENS:
+            return "push-command", f"{BLOCKED_FIRST_TOKENS[program]} moves data off this machine"
     for tokens in commands_in(line):
         head = _first_token(tokens)
 

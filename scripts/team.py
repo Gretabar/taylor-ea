@@ -3,13 +3,15 @@
 NEW in this repo. Thirteen agents, and which of them may run is decided in two
 places on purpose, by two different people:
 
-  context/architecture/phases.json   Taylor's phase gate. A phase is approved only when
-                                     his own message carries the approval phrase
-                                     (protect-architecture.py, layer A), with a
-                                     CHANGE-LOG bullet in the same turn.
+  context/architecture/phases.json   Taylor's phase gate: upstream defaults in the
+  + state/taylor/phases.json         tracked file, his own decisions in the overlay
+                                     (scripts/overlay.py), which wins. A phase is
+                                     approved only when his own message carries the
+                                     approval phrase (protect-architecture.py, layer A),
+                                     with a CHANGE-LOG bullet in the same turn.
   context/roster-agents.json         Mike's build record: which phases and deviations
                                      are built and accepted. Code layer, so it changes
-                                     only where state/BUILD_MACHINE names the host.
+                                     only in build mode (_health.build_mode).
 
 An agent is ON when one of its routes is both approved and accepted:
 
@@ -200,7 +202,7 @@ class Team:
                 raise TeamUnreadable(f"roster agent {name or '?'} has no name or no lane")
             if name in found:
                 raise TeamUnreadable(f"roster-agents.json lists {name} twice")
-            for flag in ("delivery", "privacy", "read_only"):
+            for flag in ("delivery", "privacy", "read_only", "lessons"):
                 if flag in agent and not isinstance(agent[flag], bool):
                     raise TeamUnreadable(f"{name} has {flag} {agent[flag]!r}; it must be true or false")
             if phase is None:
@@ -331,11 +333,21 @@ def _read(path: Path) -> dict:
 
 
 def load(root: Path | str | None = None) -> Team:
-    """The team as the three files on disk say it is. Raises TeamUnreadable, never guesses."""
+    """The team as the files on disk say it is. Raises TeamUnreadable, never guesses.
+
+    Phases and deviations are read through scripts/overlay.py: the tracked defaults with
+    Taylor's own decisions (state/taylor/) laid over them, so his approvals survive every
+    `git pull` of the defaults.
+    """
     base = Path(root) if root else REPO_ROOT
-    return Team(_read(base / "context" / "roster-agents.json"),
-                _read(base / "context" / "architecture" / "phases.json"),
-                _read(base / "context" / "architecture" / "deviations.json"))
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import overlay  # noqa: PLC0415  -- local: hooks import this module, and only a load needs it
+
+    try:
+        phase_gate, register = overlay.phases(base), overlay.deviations(base)
+    except overlay.OverlayUnreadable as exc:
+        raise TeamUnreadable(str(exc)) from exc
+    return Team(_read(base / "context" / "roster-agents.json"), phase_gate, register)
 
 
 def counts(statuses: list[AgentStatus]) -> str:

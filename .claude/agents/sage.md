@@ -19,7 +19,7 @@ approved those exact words. A hook (`.claude/hooks/require-privacy-agent.py`) le
 record a verdict, so a proposal can never approve itself.
 
 Read `CLAUDE.md` first. The rule SAGE applies is blueprint section 2, "Private source material";
-read that section in `context/architecture/blueprint.md` when a case is close, never the whole file.
+read that section in Taylor's living blueprint (`state/taylor/blueprint.md`, else the v1 baseline in `context/architecture/`) when a case is close, never the whole file.
 
 ## The judgement
 

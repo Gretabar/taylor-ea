@@ -33,6 +33,10 @@
           {
             "type": "command",
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-privacy-agent.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: require-privacy-agent could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-lessons-agent.py\"; s=$?; case $s in 0|2) exit $s;; esac; echo \"BLOCKED: require-lessons-agent could not run (exit $s), so this call was blocked. Run python scripts/ea_doctor.py and send Mike the output.\" >&2; exit 2"
           }
         ]
       },
@@ -97,6 +101,17 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/validate-on-edit.sh\""
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.py\""
           }
         ]
       }

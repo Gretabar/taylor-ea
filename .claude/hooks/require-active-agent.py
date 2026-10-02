@@ -34,10 +34,17 @@ defines, and a built-in agent holds Bash: the WREN-only and SAGE-only gates woul
 stop a Doc write or a privacy stamp, but nothing stops it running register.py. The
 thirteen are the closed set of who works on Taylor's records.
 
+EXCEPT IN BUILD MODE (_gate.is_build_machine: state/BUILD_MACHINE, or an unexpired
+state/BUILD_MODE that Mike switched on from a terminal). Then a non-roster dev agent
+(Explore, general-purpose, Plan, a plugin reviewer such as pr-review-toolkit:*) may be
+dispatched, because Mike is building. A roster agent that is not switched on is refused
+all the same, and so are Workflows and claude CLI sessions: build mode opens the
+building tools, not Taylor's switched-off lanes.
+
 WHY NOT A SETTINGS DENY RULE. `permissions.deny: ["Agent(milo)"]` would block the
 call, but with a generic message and from a static list: it cannot say APPROVED, NOT
-BUILT YET the day Taylor approves a phase, because that depends on
-context/architecture/phases.json.
+BUILT YET the day Taylor approves a phase, because that depends on his phase
+decisions (context/architecture/phases.json with state/taylor/phases.json over it).
 
 THE SHELL CHECK is _shell.program_runs(), the parser every shell gate shares: the
 claude CLI (or `npx @anthropic-ai/claude-code`) started through any launcher it
@@ -76,6 +83,7 @@ try:
         PayloadUnreadable,
         block,
         deny_environment,
+        is_build_machine,
         read_payload,
         tool_input,
     )
@@ -130,11 +138,12 @@ def _team_module():
     return team
 
 
-def decide(tool: str, given: dict, team) -> tuple[bool, str, tuple[str, ...]]:
+def decide(tool: str, given: dict, team, build_mode: bool = False) -> tuple[bool, str, tuple[str, ...]]:
     """(allowed, rule_id, the lines a refusal prints). Pure, so the guardrail self-test drives it.
 
     `team` is a scripts/team.py Team, or None when the call turned out not to be a
-    dispatch (then it is never consulted).
+    dispatch (then it is never consulted). `build_mode` lets a non-roster dev agent
+    through; it never opens a roster agent that is switched off.
     """
     if tool == "Workflow":
         return False, "workflow", WORKFLOW_LINES
@@ -153,7 +162,11 @@ def decide(tool: str, given: dict, team) -> tuple[bool, str, tuple[str, ...]]:
             return False, rule_id, lines
         return False, "claude-cli:--agent", SESSION_LINES
     if tool in DISPATCH_TOOLS:
-        return _team_module().dispatch_verdict(team, str(given.get("subagent_type") or ""))
+        subagent_type = str(given.get("subagent_type") or "")
+        allowed, rule_id, lines = _team_module().dispatch_verdict(team, subagent_type)
+        if not allowed and build_mode and rule_id.startswith("not-on-roster:"):
+            return True, f"build-mode:{subagent_type or 'general-purpose'}", ()
+        return allowed, rule_id, lines
     return True, "not-a-dispatch", ()
 
 
@@ -186,7 +199,7 @@ def run() -> int:
                           session_id=str(payload.get("session_id") or ""))
             return deny_environment(HOOK, "team roster or phase gate", str(exc))
 
-    allowed, rule_id, lines = decide(tool, given, team)
+    allowed, rule_id, lines = decide(tool, given, team, build_mode=tool in DISPATCH_TOOLS and is_build_machine())
     if rule_id == "not-a-dispatch":
         return 0
     target = str(given.get("subagent_type") or given.get("command") or tool)[:200]

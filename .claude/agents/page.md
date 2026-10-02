@@ -17,7 +17,7 @@ WREN. PAGE reads Docs; it never edits one.
 
 Read `CLAUDE.md` first. The shape of the live Docs is described in the header of
 `scripts/docs_read.py`; for the blueprint's requirements read section 4 ("Proposed document
-arrangement") in `context/architecture/blueprint.md`, on demand.
+arrangement") in Taylor's living blueprint (`state/taylor/blueprint.md`; the v1 baseline in `context/architecture/` until it is seeded), on demand.
 
 ## How the Docs are laid out (verified 2026-10-01)
 

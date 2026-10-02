@@ -27,6 +27,7 @@ Enterprise agreement, with no training and with audit logs".
 | The OAuth token and client (`state/`) | this laptop only | never; only used to call Google |
 | Proposals and snapshots (`state/proposals`, `state/records`) | this laptop only | an agent reads one during a session |
 | Taylor's private notes (`state/private/notes.md`) | this laptop only; never synced, never in git or the kit | an agent reads them during a session |
+| Taylor's overlay (`state/taylor/`): his decisions, rules, living blueprint and the lessons he taught | this laptop only; never synced, never in git or the kit | every session: the session-start hook loads his rules and the lessons in effect |
 | The running 1:1 Docs | Greta's Google Workspace (they always were) | already in Google; read into a session when needed |
 | Fixture Docs | Taylor's own Drive, titled [FIXTURE] | they contain placeholder text only |
 | The audit log (`logs/`, the audit table) | this laptop only | never, unless someone sends it |
