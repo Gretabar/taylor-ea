@@ -37,7 +37,10 @@ Mike's Drive stays an explicit flag.
 
 BLOCKED IS NOT FAILED. Blueprint s.12: "use Failed or Blocked when it does not work
 or cannot be exercised". A crash of the harness itself is "cannot be exercised", so in
-every leg it is reported Blocked. A script under test that misbehaves is FAILED: it
+every leg it is reported Blocked. So is G4 when Google is still serving the Doc it just
+deleted after G4_GONE_TIMEOUT: Drive's delete returns before Google stops serving the Doc,
+and a write that lands in that window is a race with Google, not the system's behaviour, so
+G4 waits for a 404 before it writes. A script under test that misbehaves is FAILED: it
 exits non-zero, prints no JSON, breaks its output contract, or loses a record it
 reported writing. Each of those raises SystemFailure at the point the harness reads
 the script's output, so it can never be mistaken for a harness crash.
@@ -68,6 +71,7 @@ import socket  # noqa: E402
 import subprocess  # noqa: E402
 import sys  # noqa: E402
 import tempfile  # noqa: E402
+import time  # noqa: E402
 from collections import Counter  # noqa: E402
 from datetime import date, datetime, timedelta, timezone  # noqa: E402
 from pathlib import Path  # noqa: E402
@@ -723,6 +727,46 @@ def g1(ev: Evidence) -> dict:
                                  "baseline sha256 unchanged"}
 
 
+# Drive's delete returns before Google stops serving the Doc. Observed 2026-10-01 at 537bbfb:
+# a write seconds after the delete landed and was read back (exit 0, UPDATED), and the same
+# id answered 404 only minutes later. G4 tests a write to a Doc that is GONE, so it waits.
+G4_POLL_SECONDS = 2.0
+G4_GONE_TIMEOUT = 90.0
+
+
+def wait_until_gone(doc_id: str) -> tuple[bool, float, list[object]]:
+    """Read the Doc every G4_POLL_SECONDS until Google answers 404 or 403, for at most
+    G4_GONE_TIMEOUT. (gone, seconds waited, what each read returned: "served", a status,
+    or an error). Any other answer is not proof it is gone, so the wait goes on."""
+    service = docs_read.docs_service()
+    started = time.monotonic()
+    seen: list[object] = []
+    while True:
+        try:
+            docs_read.fetch(service, doc_id)
+            seen.append("served")
+        except docs_read.DocReadError as exc:
+            if exc.status in (403, 404):
+                seen.append(exc.status)
+                return True, time.monotonic() - started, seen
+            seen.append(f"error {exc.status or 'without a status'}")
+        waited = time.monotonic() - started
+        if waited + G4_POLL_SECONDS > G4_GONE_TIMEOUT:
+            return False, waited, seen
+        time.sleep(G4_POLL_SECONDS)
+
+
+def _runs(seen: list[object]) -> str:
+    """["served", "served", 404] -> "served x2, then 404"."""
+    groups: list[list] = []
+    for item in seen:
+        if groups and groups[-1][0] == item:
+            groups[-1][1] += 1
+        else:
+            groups.append([item, 1])
+    return ", then ".join(f"{item}" + (f" x{count}" if count > 1 else "") for item, count in groups)
+
+
 def g4(ev: Evidence) -> dict:
     import make_fixtures  # noqa: PLC0415
 
@@ -740,8 +784,19 @@ def g4(ev: Evidence) -> dict:
         raise SystemFailure(f"docs_propose.py exited {prop.code} with no proposal: {prop.err.strip()[-160:]}")
     import google_creds  # noqa: PLC0415
 
+    waited_note, blocked = "", None
     if google_creds.DRIVE in google_creds.granted_scopes():
         ev.add(f"- deleted the G4 fixture through Drive: `{make_fixtures.delete_fixture_doc(sacrificial['doc_id'])}`")
+        gone, waited, seen = wait_until_gone(sacrificial["doc_id"])
+        ev.add(f"- waited for Google to stop serving it: documents.get every {G4_POLL_SECONDS:g} s, {len(seen)} "
+               f"read(s), {_runs(seen)}: {'gone' if gone else 'STILL SERVED'} after {waited:.1f} s "
+               f"(limit {G4_GONE_TIMEOUT:g} s)")
+        if gone:
+            waited_note = f"Google stopped serving it after {waited:.0f}s; then "
+        else:
+            blocked = {"ok": False, "blocked": True,
+                       "summary": f"Google had not finished deleting the Doc after {waited:.0f}s, so a write to a "
+                                  f"deleted Doc could not be tested; nothing was written to it"}
     else:
         # Taylor's Phase 1 consent has no Drive scope, so a Doc cannot be deleted from
         # here. The same condition (a registered Doc Google cannot return) is produced by
@@ -766,6 +821,8 @@ def g4(ev: Evidence) -> dict:
                f"`{missing}`, an id Google cannot return")
     with ea_db.connect() as conn:
         conn.execute("UPDATE docs SET role = 'g4_deleted' WHERE doc_id = ?", (sacrificial["doc_id"],))
+    if blocked:
+        return blocked  # never FAILED and never Passed: a race with Google is not the system's behaviour
     deleted = sh("scripts/docs_edit.py", "add-topic", "--doc", sacrificial["doc_id"], "--proposal", path)
     ev.cmd("docs_edit.py add-topic --doc <deleted fixture>", deleted)
     t_row = system_row("topic row", "SELECT ref, status, last_error FROM topics WHERE ref = ?", t_ref)
@@ -787,8 +844,8 @@ def g4(ev: Evidence) -> dict:
     ok = (deleted.code == 3 and "NOT UPDATED" in deleted.err and t_row["status"] == "queued"
           and stale.code == 3 and "NOT UPDATED" in stale.err and s_row["status"] == "queued"
           and revision_before == revision_after and len(audit) == 2 and all(a["decision"] == "fail" for a in audit))
-    return {"ok": ok, "summary": "deleted fixture: exit 3 'NOT UPDATED', topic still queued, audit fail; stale "
-                                 "revision: Google 400, one retry, exit 3, Doc revision unchanged, audit fail"}
+    return {"ok": ok, "summary": f"deleted fixture: {waited_note}exit 3 'NOT UPDATED', topic still queued, audit fail; "
+                                 f"stale revision: Google 400, one retry, exit 3, Doc revision unchanged, audit fail"}
 
 
 def g5(ev: Evidence) -> dict:
@@ -1211,7 +1268,8 @@ def run_leg(fn) -> tuple[Evidence, dict]:
     """Run one leg. Never Passed without the leg's own observed evidence.
 
     A SystemFailure is FAILED. Any other exception is the harness failing to exercise
-    the test, which is Blocked in every leg (blueprint s.12).
+    the test, which is Blocked in every leg (blueprint s.12), and so is a leg that returns
+    `blocked` itself, saying why (G4 when Google has not finished deleting its Doc).
     """
     ev = Evidence()
     try:
@@ -1222,7 +1280,7 @@ def run_leg(fn) -> tuple[Evidence, dict]:
         # swallow: recorded as Blocked with the exception, never as Passed. One leg
         # the harness could not exercise must not hide the evidence of the others.
         return ev, {"ok": False, "blocked": True, "summary": f"harness error {exc.__class__.__name__}: {exc}"}
-    if not result["ok"]:
+    if not result["ok"] and not result.get("blocked"):
         # A leg's summary describes the outcome it checks for. On a failure that is what
         # was expected, not what happened, and it must not read like a pass.
         result = {**result, "summary": f"expected, not observed: {result['summary']}"}

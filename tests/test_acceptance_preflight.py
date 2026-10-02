@@ -320,5 +320,127 @@ class HarnessCrashIsBlocked(unittest.TestCase):
         self.assertEqual(passed["summary"], summary)
 
 
+class FakeGoogle:
+    """The G4 fixture as Google serves it after Drive deletes it.
+
+    Observed 2026-10-01 at 537bbfb: Drive's delete returned, a write seconds later landed and
+    was read back (RESULT: UPDATED, exit 0), and only minutes later did the same id answer
+    404. So after the delete the Doc is still served for `served_reads` reads, then gone;
+    None means it is never gone within the test. A write lands while the Doc is served and
+    is refused once it is gone, exactly as docs_edit.py behaves against the real API.
+    """
+
+    DOC = "G4DOC"
+
+    def __init__(self, served_reads: int | None):
+        self.served_reads = served_reads
+        self.deleted = False
+        self.gone = False
+        self.reads = 0
+        self.log: list[tuple[str, object]] = []
+
+    def delete(self, doc_id: str) -> str:
+        self.deleted = True
+        self.log.append(("delete", doc_id))
+        return "[FIXTURE] G4 deleted doc"
+
+    def fetch(self, service, doc_id: str) -> dict:
+        if self.deleted and doc_id == self.DOC:
+            if self.served_reads is not None and self.reads >= self.served_reads:
+                self.gone = True
+            self.reads += 1
+            if self.gone:
+                self.log.append(("read", 404))
+                raise dr.DocReadError(f"documents.get {doc_id}: HTTP 404, not found (deleted, or the id is wrong)", 404)
+            self.log.append(("read", "served"))
+        return {"documentId": doc_id, "revisionId": "ANLCKQk9C4Zkm00sdrkvcy2W"}
+
+    def write(self) -> tuple[int, str, str]:
+        if self.gone:
+            self.log.append(("write", "refused"))
+            return 3, "", f"NOT UPDATED: documents.get {self.DOC}: HTTP 404, not found (deleted, or the id is wrong)"
+        self.log.append(("write", "landed"))
+        return 0, "RESULT: UPDATED T-0001 in [FIXTURE] G4 deleted doc, revision ANLCKQk9C4Zkm00sdrkvcy2W", ""
+
+
+class G4WaitsForGoogleToDelete(unittest.TestCase):
+    """G4 writes to a deleted Doc only once Google has stopped serving it, and is Blocked, never
+    FAILED or Passed, when Google is still serving it at the end of the wait."""
+
+    def setUp(self):
+        env = mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        self.acceptance = load_acceptance()
+
+    def run_g4(self, google: FakeGoogle) -> tuple[str, str, list[str]]:
+        import google_creds
+        import make_fixtures
+
+        a = self.acceptance
+
+        def sh(*args, **kwargs):
+            if "docs_edit.py" in args[0]:
+                return a.Run(*google.write())
+            if "docs_propose.py" in args[0]:
+                return a.Run(0, "proposal: state/proposals/g4.json\n  apply: --doc G4DOC", "")
+            return a.Run(0, json.dumps({"ref": "T-0002" if "kaed" in args else "T-0001", "created": True}), "")
+
+        def rows(sql, *params):
+            if "g4_sacrificial" in sql:
+                return [{"doc_id": FakeGoogle.DOC, "role": "g4_sacrificial"}]
+            if "FROM audit" in sql:
+                return [{"decision": "fail", "rule_id": "stale"}, {"decision": "fail", "rule_id": "doc-unreadable"}]
+            return []
+
+        def system_row(what, sql, ref):
+            landed = ("write", "landed") in google.log
+            return {"ref": ref, "status": "placed" if ref == "T-0001" and landed else "queued", "last_error": None}
+
+        stale = a.Run(3, "", "NOT UPDATED: the Doc changed since it was read (stale revision)")
+        patches = [
+            mock.patch.object(a, "sh", side_effect=sh),
+            mock.patch.object(a, "rows", side_effect=rows),
+            mock.patch.object(a, "system_row", side_effect=system_row),
+            mock.patch.object(a, "doc_of", return_value={"doc_id": "KAED"}),
+            mock.patch.object(a, "read", return_value={"revision_id": "R-KAED"}),
+            mock.patch.object(a, "propose_and_apply", return_value=(a.Run(0, "", ""), stale, "p2.json")),
+            mock.patch.object(a.ea_db, "connect", mock.MagicMock()),
+            mock.patch.object(a.docs_read, "docs_service", return_value=object()),
+            mock.patch.object(a.docs_read, "fetch", side_effect=google.fetch),
+            mock.patch.object(google_creds, "granted_scopes", return_value={google_creds.DRIVE}),
+            mock.patch.object(make_fixtures, "delete_fixture_doc", side_effect=google.delete),
+            # A real wait, kept short: 10 ms between reads, 300 ms in all.
+            mock.patch.object(a, "G4_POLL_SECONDS", 0.01, create=True),
+            mock.patch.object(a, "G4_GONE_TIMEOUT", 0.3, create=True),
+        ]
+        for patcher in patches:
+            patcher.start()
+        try:
+            ev, result = a.run_leg(a.g4)
+        finally:
+            for patcher in reversed(patches):
+                patcher.stop()
+        return a.verdict(result), result["summary"], ev.lines
+
+    def test_served_twice_then_404_the_write_waits_for_the_404_and_g4_can_pass(self):
+        google = FakeGoogle(served_reads=2)
+        verdict, summary, evidence = self.run_g4(google)
+        events = [entry for entry in google.log if entry[0] in ("read", "write")]
+        self.assertEqual(events, [("read", "served"), ("read", "served"), ("read", 404), ("write", "refused")],
+                         "the write must come after Google answers 404, never while it still serves the Doc")
+        self.assertEqual(verdict, "Passed", summary)
+        waited = [line for line in evidence if "documents.get" in line and "every" in line]
+        self.assertTrue(waited and "served x2, then 404" in waited[0] and " s" in waited[0], evidence)
+
+    def test_still_served_at_the_end_of_the_wait_is_blocked_and_nothing_is_written(self):
+        google = FakeGoogle(served_reads=None)
+        verdict, summary, evidence = self.run_g4(google)
+        self.assertEqual(verdict, "Blocked", summary)
+        self.assertTrue(summary.startswith("Google had not finished deleting the Doc after"), summary)
+        self.assertNotIn("write", [entry[0] for entry in google.log], "no write to a Doc Google still serves")
+        self.assertTrue(any("STILL SERVED" in line for line in evidence), evidence)
+
+
 if __name__ == "__main__":
     unittest.main()

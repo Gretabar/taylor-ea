@@ -75,7 +75,7 @@ Vendored 2026-10-01.
 | `scripts/docs_propose.py` | `-` | `-` | `-` | `d8c65a8a6179340d3865c0afe855e4f36b3e095eed3ad49f2d315c2822ff2d98` | NEW |
 | `scripts/docs_edit.py` | `-` | `-` | `-` | `61c53a700a24f2d467da2056457ca0175d79a8e4506c60ca05ccb87f93ed4cce` | NEW |
 | `scripts/docs_reconcile.py` | `-` | `-` | `-` | `8ae92c49a91167132497725c67a1d29f304c73eaad1f9b7a0bee4054362d74e7` | NEW |
-| `scripts/acceptance.py` | `-` | `-` | `-` | `eceb85613a87ea335eb0dfa3d0153ffac206a9b336c853c8c890282d83d842a7` | NEW |
+| `scripts/acceptance.py` | `-` | `-` | `-` | `60a390cd5e64a8ba19fad2dd68321ff2c3baa013457978174bb2791e0de1b5cd` | NEW |
 | `scripts/ea_tick.py` | `PIPER:scripts/cadence_tick.py` | `untracked` | `6c0b9b48c339ac7da6cf9f3b9001182474f5da95106d0a122e522dc361c520f8` | `d48bbf97bb791f75ac304a1f124426889d59d49f36b156c9ce98f697830e000e` | PORT |
 | `scripts/run_ea_tick.ps1` | `PIPER:scripts/run_cadence_tick.ps1` | `untracked` | `d7233a6d93db66768bebbb3ca61591de41356a88a56a0ad92ddbd621d6ddccb2` | `712efb60739d2511a96ce97a291504bd8f3828e8412d284a87d6e4ab2488de75` | PORT |
 | `scripts/schedule_ea_tick.ps1` | `PIPER:scripts/schedule_cadence_tick.ps1` | `untracked` | `6189ca47717bb64d4bb7521b69f166330ddac8939e4a05dd57936f9d2e88ca7e` | `38035578522913ed67b347a8a52aee9f79ac874e46c3511debba4c61158415a0` | PORT |
@@ -118,7 +118,7 @@ Vendored 2026-10-01.
 | `tests/fixtures/kaed_fixture_document.json` | `-` | `-` | `-` | `fda4a23a8e9d271dcf80684e2733c7d172f9609b66d1da558ada8f06a0af593b` | NEW |
 | `tests/fixtures/kaed_section_map.json` | `-` | `-` | `-` | `f305c27b4e0bf26b947ec6b2864e7c4aa79b71de1e5016560e9cc85ebe1c0be4` | NEW |
 | `.claude/hooks/_activity.py` | `-` | `-` | `-` | `9f0c1df2dd6bd6f7721f6036b097f6c7208ccd0f0d0cf44a1fb4440ed71f30cd` | NEW |
-| `tests/test_acceptance_preflight.py` | `-` | `-` | `-` | `0b3e3976b433f02deaa37c2673fb4a349380688261182705b7e79e1674deff11` | NEW |
+| `tests/test_acceptance_preflight.py` | `-` | `-` | `-` | `df096e1d7deea8e0efcefd424b7ada8c7b442c6e36fd71e78e0d15d7c3c3c41c` | NEW |
 | `tests/test_acceptance_p16.py` | `-` | `-` | `-` | `fdb731ea4aa6be00c14ee38011a245958bb700e04d92176e4f3e6cc5764317d9` | NEW |
 | `.claude/hooks/require-active-agent.py` | `-` | `-` | `-` | `610ee6180e44fe27126eaf14ddae5ec7d90f3fd247db96a3a9d8132708226675` | NEW |
 | `.claude/hooks/require-privacy-agent.py` | `-` | `-` | `-` | `fc8e187abf7cb1693a1194e66d988ac81b5a39dbb6723dced3ed309237cd7a9e` | NEW |
